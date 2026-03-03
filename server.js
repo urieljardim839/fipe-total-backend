@@ -735,6 +735,24 @@ app.post("/api/admin/resetar-senha", autenticar, verificarAdmin, async (req, res
 
 });
 
+app.get("/api/me", autenticar, async (req, res) => {
+  try {
+
+    const usuario = await pool.query(
+      "SELECT id, nome, email, is_admin FROM usuarios WHERE id = $1",
+      [req.usuario.id]
+    );
+
+    if (!usuario.rows.length) {
+      return res.status(404).json({ erro: "Usuário não encontrado" });
+    }
+
+    res.json(usuario.rows[0]);
+
+  } catch (err) {
+    res.status(500).json({ erro: "Erro interno" });
+  }
+});
 
 
 /* =============================
