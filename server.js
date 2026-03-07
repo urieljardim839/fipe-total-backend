@@ -6,11 +6,18 @@ const { Pool } = require("pg");
 const { MercadoPagoConfig, Preference, Payment } = require("mercadopago");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const rateLimit = require("express-rate-limit");
 
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 20,
+  message: { erro: "Muitas tentativas. Tente novamente em 15 minutos." }
+});
 
 /* =============================
    MERCADO PAGO CONFIG
@@ -86,7 +93,7 @@ app.post("/api/cadastro", async (req, res) => {
    LOGIN
 ============================= */
 
-app.post("/api/login", async (req, res) => {
+app.post("/api/login", loginLimiter, async (req, res) => {
   const { email, senha } = req.body;
 
   try {
@@ -104,6 +111,10 @@ app.post("/api/login", async (req, res) => {
     }
 
     const usuario = result.rows[0];
+
+    if (usuario.bloqueado) {
+      return res.status(403).json({ erro: "Usuário bloqueado" });
+    }
 
     const senhaValida = await bcrypt.compare(senha, usuario.senha);
 
@@ -293,7 +304,7 @@ app.post("/api/proprietario-atual", async (req, res) => {
     const VALOR = 11.99;
 
     const usuario = await pool.query(
-      "SELECT saldo FROM usuarios WHERE id = $1",
+      "SELECT saldo, bloqueado FROM usuarios WHERE id = $1",
       [userId]
     );
 
@@ -301,6 +312,10 @@ app.post("/api/proprietario-atual", async (req, res) => {
       return res.status(404).json({ erro: "Usuário não encontrado" });
 
     const saldo = Number(usuario.rows[0].saldo);
+
+    if (usuario.rows[0].bloqueado) {
+      return res.status(403).json({ erro: "Conta bloqueada" });
+    }
 
     if (saldo < VALOR)
       return res.status(403).json({ erro: "Saldo insuficiente" });
@@ -326,6 +341,8 @@ app.post("/api/proprietario-atual", async (req, res) => {
       "UPDATE usuarios SET saldo = saldo - $1 WHERE id = $2",
       [VALOR, userId]
     );
+
+    const placaFormatada = placa.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
     await pool.query(
       "INSERT INTO consultas (usuario_id, placa, valor_pago, dados_json) VALUES ($1,$2,$3,$4)",
@@ -361,14 +378,20 @@ app.post("/api/consulta-completa", async (req, res) => {
     const VALOR = Number(54.90);
 
     const usuario = await pool.query(
-      "SELECT saldo FROM usuarios WHERE id = $1",
+      "SELECT saldo, bloqueado FROM usuarios WHERE id = $1",
       [userId]
     );
 
     if (!usuario.rows.length)
       return res.status(404).json({ erro: "Usuário não encontrado" });
 
+
+
     const saldo = Number(usuario.rows[0].saldo);
+
+    if (usuario.rows[0].bloqueado) {
+      return res.status(403).json({ erro: "Conta bloqueada" });
+    }
 
     if (saldo < VALOR)
       return res.status(403).json({ erro: "Saldo insuficiente" });
@@ -415,16 +438,13 @@ app.post("/api/consulta-completa", async (req, res) => {
 
   } catch (error) {
 
+  try {
     await pool.query("ROLLBACK");
+  } catch {}
 
-    console.log("ERRO DETALHADO CONSULTA COMPLETA:");
-    console.log(error.response?.data || error.message);
+  res.status(500).json({ erro: "Erro interno do servidor" });
 
-    res.status(500).json({
-      erro: "Erro interno do servidor",
-      detalhe: error.response?.data || error.message
-    });
-  }
+}
 
 });
 
@@ -538,7 +558,7 @@ app.post("/api/consulta-bancaria", async (req, res) => {
     const VALOR = 79.90;
 
     const usuario = await pool.query(
-      "SELECT saldo FROM usuarios WHERE id = $1",
+      "SELECT saldo, bloqueado FROM usuarios WHERE id = $1",
       [userId]
     );
 
@@ -546,6 +566,10 @@ app.post("/api/consulta-bancaria", async (req, res) => {
       return res.status(404).json({ erro: "Usuário não encontrado" });
 
     const saldo = Number(usuario.rows[0].saldo);
+
+    if (usuario.rows[0].bloqueado) {
+      return res.status(403).json({ erro: "Conta bloqueada" });
+    }
 
     if (saldo < VALOR)
       return res.status(403).json({ erro: "Saldo insuficiente" });
@@ -570,10 +594,13 @@ app.post("/api/consulta-bancaria", async (req, res) => {
 
   } catch (error) {
 
+  try {
     await pool.query("ROLLBACK");
+  } catch {}
 
-    res.status(500).json({ erro: "Erro interno do servidor" });
-  }
+  res.status(500).json({ erro: "Erro interno do servidor" });
+
+}
 
 });
 
@@ -588,7 +615,7 @@ function autenticar(req, res, next) {
   const token = authHeader.split(" ")[1];
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "segredo_super");
     req.usuario = decoded;
     next();
   } catch (err) {
@@ -752,6 +779,90 @@ app.get("/api/me", autenticar, async (req, res) => {
   } catch (err) {
     res.status(500).json({ erro: "Erro interno" });
   }
+});
+
+app.post("/api/admin/excluir-usuario", autenticar, verificarAdmin, async (req, res) => {
+
+  try {
+
+    const { userId } = req.body;
+
+    await pool.query(
+      "DELETE FROM usuarios WHERE id = $1",
+      [userId]
+    );
+
+    res.json({ sucesso: true });
+
+  } catch (err) {
+
+    res.status(500).json({ erro: "Erro ao excluir usuário" });
+
+  }
+
+});
+
+app.get("/api/admin/stats", autenticar, verificarAdmin, async (req, res) => {
+
+  try {
+
+    const usuarios = await pool.query(
+      "SELECT COUNT(*) FROM usuarios"
+    );
+
+    const saldo = await pool.query(
+      "SELECT SUM(saldo) FROM usuarios"
+    );
+
+    const consultas = await pool.query(
+      "SELECT COUNT(*) FROM consultas"
+    );
+
+    const faturamento = await pool.query(
+      "SELECT SUM(valor_pago) FROM consultas"
+    );
+
+    res.json({
+      totalUsuarios: Number(usuarios.rows[0].count),
+      saldoSistema: Number(saldo.rows[0].sum || 0),
+      totalConsultas: Number(consultas.rows[0].count),
+      faturamento: Number(faturamento.rows[0].sum || 0)
+    });
+
+  } catch (err) {
+
+    res.status(500).json({ erro: "Erro ao carregar stats" });
+
+  }
+
+});
+
+app.get("/api/admin/pagamentos", autenticar, verificarAdmin, async (req, res) => {
+
+  const pagamentos = await pool.query(`
+        SELECT p.id, p.valor, p.payment_id, p.criado_em,
+        u.nome, u.email
+        FROM pagamentos p
+        JOIN usuarios u ON u.id = p.usuario_id
+        ORDER BY p.criado_em DESC
+    `);
+
+  res.json(pagamentos.rows);
+
+});
+
+app.get("/api/admin/consultas", autenticar, verificarAdmin, async (req, res) => {
+
+  const consultas = await pool.query(`
+        SELECT c.id, c.placa, c.valor_pago, c.criado_em,
+        u.nome, u.email
+        FROM consultas c
+        JOIN usuarios u ON u.id = c.usuario_id
+        ORDER BY c.criado_em DESC
+    `);
+
+  res.json(consultas.rows);
+
 });
 
 
