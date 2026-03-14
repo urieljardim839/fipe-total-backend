@@ -22,12 +22,67 @@ const transporter = nodemailer.createTransport({
 
 app.use(cors());
 
+/* =============================
+   BLOQUEIO DE BOTS
+============================= */
+
+app.use((req, res, next) => {
+
+  const ua = req.headers["user-agent"];
+
+  if (!ua) {
+    return res.status(403).json({
+      erro: "Acesso bloqueado"
+    });
+  }
+
+  const bots = [
+    "curl",
+    "wget",
+    "python",
+    "scrapy",
+    "postman",
+    "insomnia"
+  ];
+
+  const blocked = bots.some(bot =>
+    ua.toLowerCase().includes(bot)
+  );
+
+  if (blocked) {
+    return res.status(403).json({
+      erro: "Bot detectado"
+    });
+  }
+
+  next();
+
+});
+
+/* =============================
+   PROTEÇÃO GLOBAL ANTI FLOOD
+============================= */
+
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuto
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    erro: "Muitas requisições. Aguarde alguns segundos."
+  }
+});
+
+app.use(globalLimiter);
+
+
 app.use((req, res, next) => {
 
   const allowedOrigins = [
     "https://engemafer.com.br",
+    "https://www.engemafer.com.br",
     "http://localhost:3000"
-  ]
+  ];
 
   const origin = req.headers.origin
 
@@ -45,6 +100,53 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: "1mb" }));
 
+/* =============================
+   MIDDLEWARE AUTENTICAÇÃO
+============================= */
+
+function autenticar(req, res, next) {
+
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    return res.status(401).json({ erro: "Token não fornecido" });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  try {
+
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET || "segredo_super"
+    );
+
+    req.usuario = decoded;
+
+    next();
+
+  } catch (err) {
+
+    return res.status(401).json({ erro: "Token inválido" });
+
+  }
+
+}
+
+function verificarAdmin(req, res, next) {
+
+  if (!req.usuario || !req.usuario.is_admin) {
+
+    return res.status(403).json({
+      erro: "Acesso permitido apenas para administradores"
+    });
+
+  }
+
+  next();
+
+}
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
   max: 20,
@@ -56,6 +158,41 @@ const consultaLimiter = rateLimit({
   max: 10,
   message: { erro: "Muitas consultas. Aguarde 1 minuto." }
 });
+
+/* =============================
+   ANTI ABUSO POR USUÁRIO
+============================= */
+
+const consultasUsuario = {};
+
+function antiAbusoConsulta(req, res, next) {
+
+  const { userId } = req.body;
+
+  if (!userId) return next();
+
+  const agora = Date.now();
+
+  if (!consultasUsuario[userId]) {
+    consultasUsuario[userId] = [];
+  }
+
+  consultasUsuario[userId] = consultasUsuario[userId]
+    .filter(t => agora - t < 60000);
+
+  if (consultasUsuario[userId].length >= 5) {
+
+    return res.status(429).json({
+      erro: "Muitas consultas. Aguarde 1 minuto."
+    });
+
+  }
+
+  consultasUsuario[userId].push(agora);
+
+  next();
+
+}
 
 /* =============================
    MERCADO PAGO CONFIG
@@ -403,20 +540,33 @@ app.post("/api/webhook-mercadopago", async (req, res) => {
    CONSULTA PROPRIETÁRIO (R$11,99)
 ============================= */
 
-app.post("/api/proprietario-atual", consultaLimiter, async (req, res) => {
+app.post("/api/proprietario-atual", consultaLimiter, antiAbusoConsulta, async (req, res) => {
 
   try {
 
     const { placa, userId } = req.body;
     const VALOR = 11.99;
 
+    if (!placa || !userId) {
+      return res.status(400).json({ erro: "Dados inválidos" });
+    }
+
+    const placaFormatada = placa
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "");
+
+    /* =============================
+       BUSCAR USUÁRIO
+    ============================= */
+
     const usuario = await pool.query(
       "SELECT saldo, bloqueado FROM usuarios WHERE id = $1",
       [userId]
     );
 
-    if (!usuario.rows.length)
+    if (!usuario.rows.length) {
       return res.status(404).json({ erro: "Usuário não encontrado" });
+    }
 
     const saldo = Number(usuario.rows[0].saldo);
 
@@ -424,15 +574,20 @@ app.post("/api/proprietario-atual", consultaLimiter, async (req, res) => {
       return res.status(403).json({ erro: "Conta bloqueada" });
     }
 
-    if (saldo < VALOR)
+    if (saldo < VALOR) {
       return res.status(403).json({ erro: "Saldo insuficiente" });
+    }
+
+    /* =============================
+       EVITA CONSULTA REPETIDA
+    ============================= */
 
     const consultaRecente = await pool.query(
       `
-        SELECT * FROM consultas
-        WHERE usuario_id = $1
-        AND placa = $2
-        AND criado_em > NOW() - INTERVAL '5 minutes'
+      SELECT id FROM consultas
+      WHERE usuario_id = $1
+      AND placa = $2
+      AND criado_em > NOW() - INTERVAL '5 minutes'
       `,
       [userId, placaFormatada]
     );
@@ -441,38 +596,67 @@ app.post("/api/proprietario-atual", consultaLimiter, async (req, res) => {
 
       return res.status(400).json({
         erro: "Essa placa já foi consultada recentemente."
-      })
+      });
 
     }
+
+    /* =============================
+       CONSULTA API CHECKPRO
+    ============================= */
 
     const response = await axios.post(
       "https://ws2.checkpro.com.br/servicejson.asmx/ConsultaProprietarioAtualPorPlaca",
       new URLSearchParams({
         cpfUsuario: process.env.CHECKPRO_CPF,
         senhaUsuario: process.env.CHECKPRO_SENHA,
-        placa: placa.toUpperCase().replace(/[^A-Z0-9]/g, "")
+        placa: placaFormatada
       }),
-      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        timeout: 20000
+      }
     );
 
     const data = response.data;
 
-    console.log("Resposta CheckPro:", data);
+    console.log("CheckPro resposta:", data);
 
-    if (String(data.StatusRetorno) !== "1")
-      return res.json({ erro: data.MensagemRetorno });
+    if (!data || String(data.StatusRetorno) !== "1") {
+
+      return res.status(400).json({
+        erro: data?.MensagemRetorno || "Erro ao consultar veículo"
+      });
+
+    }
+
+    /* =============================
+       TRANSAÇÃO SEGURA
+    ============================= */
+
+    await pool.query("BEGIN");
 
     await pool.query(
       "UPDATE usuarios SET saldo = saldo - $1 WHERE id = $2",
       [VALOR, userId]
     );
 
-    const placaFormatada = placa.toUpperCase().replace(/[^A-Z0-9]/g, "");
-
     await pool.query(
-      "INSERT INTO consultas (usuario_id, placa, valor_pago, dados_json) VALUES ($1,$2,$3,$4)",
+      `
+      INSERT INTO consultas 
+      (usuario_id, placa, valor_pago, dados_json)
+      VALUES ($1,$2,$3,$4)
+      `,
       [userId, placaFormatada, VALOR, data]
     );
+
+    await pool.query("COMMIT");
+
+    /* =============================
+       RESPOSTA FINAL
+    ============================= */
+
     res.json({
       sucesso: true,
       dados: data,
@@ -480,13 +664,18 @@ app.post("/api/proprietario-atual", consultaLimiter, async (req, res) => {
     });
 
   } catch (error) {
-    console.log("ERRO DETALHADO CHECKPRO:");
+
+    try {
+      await pool.query("ROLLBACK");
+    } catch { }
+
+    console.log("ERRO CONSULTA PROPRIETÁRIO:");
     console.log(error.response?.data || error.message);
 
     res.status(500).json({
-      erro: "Erro interno do servidor",
-      detalhe: error.response?.data || error.message
+      erro: "Erro interno do servidor"
     });
+
   }
 
 });
@@ -495,7 +684,7 @@ app.post("/api/proprietario-atual", consultaLimiter, async (req, res) => {
    CONSULTA COMPLETA (R$54,90)
 ============================= */
 
-app.post("/api/consulta-completa", consultaLimiter, async (req, res) => {
+app.post("/api/consulta-completa", consultaLimiter, antiAbusoConsulta, async (req, res) => {
 
   try {
 
@@ -693,7 +882,7 @@ app.get("/api/usuario/:id", async (req, res) => {
    CONSULTA BANCÁRIA (R$ 79,90)
 ============================= */
 
-app.post("/api/consulta-bancaria", consultaLimiter, async (req, res) => {
+app.post("/api/consulta-bancaria", consultaLimiter, antiAbusoConsulta, async (req, res) => {
 
   try {
 
@@ -736,7 +925,7 @@ app.post("/api/consulta-bancaria", consultaLimiter, async (req, res) => {
     await transporter.sendMail({
 
       from: `"Fipe Total" <${process.env.EMAIL_USER}>`,
-      to: `${email}, contato@engemafer.com.br`,
+      to: `${email}, fipetotal@gmail.com`,
 
       subject: "Consulta Bancária Recebida",
 
