@@ -10,13 +10,51 @@ const rateLimit = require("express-rate-limit");
 
 const app = express();
 
+const nodemailer = require("nodemailer");
+
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
 app.use(cors());
+
+app.use((req, res, next) => {
+
+  const allowedOrigins = [
+    "https://engemafer.com.br",
+    "http://localhost:3000"
+  ]
+
+  const origin = req.headers.origin
+
+  if (origin && !allowedOrigins.includes(origin)) {
+
+    return res.status(403).json({
+      erro: "Acesso bloqueado"
+    })
+
+  }
+
+  next()
+
+})
+
 app.use(express.json({ limit: "1mb" }));
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
   max: 20,
   message: { erro: "Muitas tentativas. Tente novamente em 15 minutos." }
+});
+
+const consultaLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minuto
+  max: 10,
+  message: { erro: "Muitas consultas. Aguarde 1 minuto." }
 });
 
 /* =============================
@@ -84,10 +122,71 @@ app.post("/api/cadastro", async (req, res) => {
 
     res.json(novoUsuario.rows[0]);
 
+    const token = jwt.sign(
+      { id: novoUsuario.rows[0].id },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    )
+
+    const link = `https://engemafer.com.br/verificar-email.html?token=${token}`
+
+    await transporter.sendMail({
+
+      from: `"Fipe Total" <${process.env.EMAIL_USER}>`,
+      to: email,
+
+      subject: "Verifique seu email",
+
+      html: `
+
+                      <h2>Confirme sua conta</h2>
+
+                      <p>Clique no botão abaixo para ativar sua conta.</p>
+
+                      <a href="${link}" style="
+                      background:#0066b3;
+                      color:white;
+                      padding:12px 20px;
+                      border-radius:8px;
+                      text-decoration:none;
+                      font-weight:bold;
+                      ">
+
+                      Confirmar Email
+
+                      </a>
+
+                    `
+
+    })
+
   } catch (error) {
     res.status(500).json({ erro: "Erro interno do servidor" });
   }
 });
+
+app.get("/api/verificar-email", async (req, res) => {
+
+  const { token } = req.query
+
+  try {
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET)
+
+    await pool.query(
+      "UPDATE usuarios SET email_verificado = TRUE WHERE id = $1",
+      [decoded.id]
+    )
+
+    res.redirect("/login.html")
+
+  } catch {
+
+    res.send("Link inválido")
+
+  }
+
+})
 
 /* =============================
    LOGIN
@@ -111,6 +210,14 @@ app.post("/api/login", loginLimiter, async (req, res) => {
     }
 
     const usuario = result.rows[0];
+
+    if (!usuario.email_verificado) {
+
+      return res.status(403).json({
+        erro: "Verifique seu email antes de entrar."
+      })
+
+    }
 
     if (usuario.bloqueado) {
       return res.status(403).json({ erro: "Usuário bloqueado" });
@@ -175,7 +282,7 @@ app.post("/api/criar-pagamento", async (req, res) => {
         },
         notification_url: "https://fip-total-backend.onrender.com/api/webhook-mercadopago",
         back_urls: {
-          success: "https://engemafer.com.br/sucesso.html",
+          success: `https://engemafer.com.br/sucesso.html?valor=${valor}`,
           failure: "https://engemafer.com.br/erro.html",
           pending: "https://engemafer.com.br/pendente.html"
         },
@@ -296,7 +403,7 @@ app.post("/api/webhook-mercadopago", async (req, res) => {
    CONSULTA PROPRIETÁRIO (R$11,99)
 ============================= */
 
-app.post("/api/proprietario-atual", async (req, res) => {
+app.post("/api/proprietario-atual", consultaLimiter, async (req, res) => {
 
   try {
 
@@ -319,6 +426,24 @@ app.post("/api/proprietario-atual", async (req, res) => {
 
     if (saldo < VALOR)
       return res.status(403).json({ erro: "Saldo insuficiente" });
+
+    const consultaRecente = await pool.query(
+      `
+        SELECT * FROM consultas
+        WHERE usuario_id = $1
+        AND placa = $2
+        AND criado_em > NOW() - INTERVAL '5 minutes'
+      `,
+      [userId, placaFormatada]
+    );
+
+    if (consultaRecente.rows.length > 0) {
+
+      return res.status(400).json({
+        erro: "Essa placa já foi consultada recentemente."
+      })
+
+    }
 
     const response = await axios.post(
       "https://ws2.checkpro.com.br/servicejson.asmx/ConsultaProprietarioAtualPorPlaca",
@@ -370,7 +495,7 @@ app.post("/api/proprietario-atual", async (req, res) => {
    CONSULTA COMPLETA (R$54,90)
 ============================= */
 
-app.post("/api/consulta-completa", async (req, res) => {
+app.post("/api/consulta-completa", consultaLimiter, async (req, res) => {
 
   try {
 
@@ -397,6 +522,24 @@ app.post("/api/consulta-completa", async (req, res) => {
       return res.status(403).json({ erro: "Saldo insuficiente" });
 
     const placaFormatada = placa.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+    const consultaRecente = await pool.query(
+      `
+        SELECT * FROM consultas
+        WHERE usuario_id = $1
+        AND placa = $2
+        AND criado_em > NOW() - INTERVAL '5 minutes'
+      `,
+      [userId, placaFormatada]
+    );
+
+    if (consultaRecente.rows.length > 0) {
+
+      return res.status(400).json({
+        erro: "Essa placa já foi consultada recentemente."
+      })
+
+    }
 
     const response = await axios.post(
       "https://ws2.checkpro.com.br/servicejson.asmx/ConsultaPacoteCompletoPorPlaca",
@@ -438,13 +581,13 @@ app.post("/api/consulta-completa", async (req, res) => {
 
   } catch (error) {
 
-  try {
-    await pool.query("ROLLBACK");
-  } catch {}
+    try {
+      await pool.query("ROLLBACK");
+    } catch { }
 
-  res.status(500).json({ erro: "Erro interno do servidor" });
+    res.status(500).json({ erro: "Erro interno do servidor" });
 
-}
+  }
 
 });
 
@@ -452,7 +595,7 @@ app.post("/api/consulta-completa", async (req, res) => {
    CONSULTA FIPE (GRÁTIS)
 ============================= */
 
-app.get("/api/placafipe/:placa/:usuario_id?", async (req, res) => {
+app.get("/api/placafipe/:placa/:usuario_id?", consultaLimiter, async (req, res) => {
 
   try {
 
@@ -482,7 +625,7 @@ app.get("/api/placafipe/:placa/:usuario_id?", async (req, res) => {
     // salva histórico se logado
     if (usuario_id) {
       await pool.query(
-        "INSERT INTO consultas (usuario_id, placa, valor_pago, dados_json) VALUES ($1,$2,$3,$4)",
+        "INSERT INTO consultas (usuario_id, placa, valor_pago, dados_json, tipo) VALUES ($1,$2,$3,$4,$5)",
         [usuario_id, placaFormatada, 0, data]
       );
     }
@@ -511,7 +654,7 @@ app.get("/api/historico/:usuario_id", async (req, res) => {
   try {
 
     const consultas = await pool.query(
-      `SELECT placa, valor_pago, criado_em, dados_json
+      `SELECT placa, valor_pago, criado_em, dados_json, tipo
        FROM consultas
        WHERE usuario_id = $1
        ORDER BY criado_em DESC`,
@@ -550,7 +693,7 @@ app.get("/api/usuario/:id", async (req, res) => {
    CONSULTA BANCÁRIA (R$ 79,90)
 ============================= */
 
-app.post("/api/consulta-bancaria", async (req, res) => {
+app.post("/api/consulta-bancaria", consultaLimiter, async (req, res) => {
 
   try {
 
@@ -567,9 +710,8 @@ app.post("/api/consulta-bancaria", async (req, res) => {
 
     const saldo = Number(usuario.rows[0].saldo);
 
-    if (usuario.rows[0].bloqueado) {
+    if (usuario.rows[0].bloqueado)
       return res.status(403).json({ erro: "Conta bloqueada" });
-    }
 
     if (saldo < VALOR)
       return res.status(403).json({ erro: "Saldo insuficiente" });
@@ -590,63 +732,41 @@ app.post("/api/consulta-bancaria", async (req, res) => {
 
     await pool.query("COMMIT");
 
+    // 📩 ENVIA EMAIL
+    await transporter.sendMail({
+
+      from: `"Fipe Total" <${process.env.EMAIL_USER}>`,
+      to: `${email}, contato@engemafer.com.br`,
+
+      subject: "Consulta Bancária Recebida",
+
+      html: `
+        <h2>Consulta Bancária Recebida</h2>
+
+        <p>Olá ${nome},</p>
+
+        <p>Recebemos sua solicitação de consulta bancária.</p>
+
+        <p><b>Placa:</b> ${placa}</p>
+
+        <p>Nosso time irá analisar e enviar o resultado em até 2 horas.</p>
+
+        <p>Equipe Fipe Total</p>
+      `
+    });
+
     res.json({ sucesso: true });
 
   } catch (error) {
 
-  try {
-    await pool.query("ROLLBACK");
-  } catch {}
+    try {
+      await pool.query("ROLLBACK");
+    } catch { }
 
-  res.status(500).json({ erro: "Erro interno do servidor" });
+    console.log("Erro consulta bancária:", error);
 
-}
+    res.status(500).json({ erro: "Erro interno do servidor" });
 
-});
-
-function autenticar(req, res, next) {
-
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader) {
-    return res.status(401).json({ erro: "Token não fornecido" });
-  }
-
-  const token = authHeader.split(" ")[1];
-
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "segredo_super");
-    req.usuario = decoded;
-    next();
-  } catch (err) {
-    return res.status(401).json({ erro: "Token inválido" });
-  }
-}
-
-function verificarAdmin(req, res, next) {
-
-  if (!req.usuario || !req.usuario.is_admin) {
-    return res.status(403).json({ erro: "Acesso negado" });
-  }
-
-  next();
-}
-
-app.get("/api/admin/usuarios", autenticar, verificarAdmin, async (req, res) => {
-
-  try {
-
-    const result = await pool.query(`
-            SELECT id, nome, email, saldo, criado_em, bloqueado
-            FROM usuarios
-            ORDER BY criado_em DESC
-        `);
-
-    res.json(result.rows);
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ erro: "Erro ao buscar usuários" });
   }
 
 });
@@ -693,6 +813,41 @@ app.post("/api/admin/remover-saldo", autenticar, verificarAdmin, async (req, res
   } catch (err) {
     console.error(err);
     res.status(500).json({ erro: "Erro ao remover saldo" });
+  }
+
+});
+
+app.get("/api/admin/consultas-bancarias", autenticar, verificarAdmin, async (req, res) => {
+
+  try {
+
+    const consultas = await pool.query(`
+      SELECT 
+      c.id,
+      c.placa,
+      c.nome,
+      c.sobrenome,
+      c.whatsapp,
+      c.email,
+      c.valor_pago,
+      c.criado_em,
+      u.nome AS usuario_nome,
+      u.email AS usuario_email
+
+      FROM consultas_bancarias c
+
+      JOIN usuarios u 
+      ON u.id = c.usuario_id
+
+      ORDER BY c.criado_em DESC
+    `);
+
+    res.json(consultas.rows);
+
+  } catch (err) {
+
+    res.status(500).json({ erro: "Erro ao buscar consultas bancárias" });
+
   }
 
 });
@@ -839,7 +994,9 @@ app.get("/api/admin/stats", autenticar, verificarAdmin, async (req, res) => {
 
 app.get("/api/admin/pagamentos", autenticar, verificarAdmin, async (req, res) => {
 
-  const pagamentos = await pool.query(`
+  try {
+
+    const pagamentos = await pool.query(`
         SELECT p.id, p.valor, p.payment_id, p.criado_em,
         u.nome, u.email
         FROM pagamentos p
@@ -847,7 +1004,13 @@ app.get("/api/admin/pagamentos", autenticar, verificarAdmin, async (req, res) =>
         ORDER BY p.criado_em DESC
     `);
 
-  res.json(pagamentos.rows);
+    res.json(pagamentos.rows);
+
+  } catch (err) {
+
+    res.status(500).json({ erro: "Erro ao buscar pagamentos" });
+
+  }
 
 });
 
@@ -865,6 +1028,100 @@ app.get("/api/admin/consultas", autenticar, verificarAdmin, async (req, res) => 
 
 });
 
+app.post("/api/recuperar-senha", async (req, res) => {
+
+  const { email } = req.body;
+
+  try {
+
+    const usuario = await pool.query(
+      "SELECT id, nome FROM usuarios WHERE email = $1",
+      [email]
+    );
+
+    if (!usuario.rows.length) {
+      return res.json({ sucesso: true });
+      // não revela se email existe
+    }
+
+    const user = usuario.rows[0];
+
+    const token = jwt.sign(
+      { id: user.id },
+      process.env.JWT_SECRET || "segredo_super",
+      { expiresIn: "15m" }
+    );
+
+    const link = `https://engemafer.com.br/nova-senha.html?token=${token}`;
+
+    await transporter.sendMail({
+
+      from: `"Fipe Total" <${process.env.EMAIL_USER}>`,
+      to: email,
+
+      subject: "Recuperação de senha",
+
+      html: `
+      <h2>Recuperação de senha</h2>
+
+      <p>Olá ${user.nome},</p>
+
+      <p>Clique no botão abaixo para redefinir sua senha.</p>
+
+      <a href="${link}" 
+      style="
+      background:#0066b3;
+      color:white;
+      padding:12px 25px;
+      border-radius:8px;
+      text-decoration:none;
+      font-weight:bold;">
+      Redefinir senha
+      </a>
+
+      <p>Esse link expira em 15 minutos.</p>
+
+      <p>Se você não solicitou, ignore este email.</p>
+      `
+    });
+
+    res.json({ sucesso: true });
+
+  } catch (error) {
+
+    res.status(500).json({ erro: "Erro interno" });
+
+  }
+
+});
+
+app.post("/api/nova-senha", async (req, res) => {
+
+  const { token, senha } = req.body;
+
+  try {
+
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET || "segredo_super"
+    );
+
+    const senhaHash = await bcrypt.hash(senha, 10);
+
+    await pool.query(
+      "UPDATE usuarios SET senha = $1 WHERE id = $2",
+      [senhaHash, decoded.id]
+    );
+
+    res.json({ sucesso: true });
+
+  } catch (error) {
+
+    res.status(400).json({ erro: "Token inválido ou expirado" });
+
+  }
+
+});
 
 /* =============================
    SERVIDOR
@@ -875,3 +1132,4 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Servidor rodando na porta ${PORT}`);
 });
+

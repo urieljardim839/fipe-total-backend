@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Recuperar Senha | Fipe Total</title>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Poppins:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+
+    <style>
+        :root {
+            --azul: #0066b3;
+            --verde: #00C853;
+            --cinza: #f4f6f9;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Poppins;
+            background: linear-gradient(135deg, #0066b3, #003466);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+
+            width: 100%;
+            max-width: 420px;
+
+            background: white;
+
+            border-radius: 20px;
+
+            padding: 40px 30px;
+
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+
+            animation: fadeUp .5s ease;
+
+        }
+
+        .logo {
+
+            font-family: 'Bebas Neue';
+            font-size: 2.2rem;
+            color: var(--azul);
+            text-align: center;
+            margin-bottom: 10px;
+
+        }
+
+        .subtitulo {
+
+            text-align: center;
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 25px;
+
+        }
+
+        .input-group {
+
+            margin-bottom: 18px;
+
+        }
+
+        label {
+
+            font-size: 13px;
+            font-weight: 600;
+            color: #444;
+
+        }
+
+        input {
+
+            width: 100%;
+            padding: 14px;
+            border-radius: 10px;
+            border: 1px solid #ddd;
+            margin-top: 6px;
+            font-size: 14px;
+
+        }
+
+        input:focus {
+
+            outline: none;
+            border: 1px solid var(--azul);
+
+        }
+
+        button {
+
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 12px;
+            background: linear-gradient(90deg, #00C853, #00e676);
+            color: white;
+            font-weight: 700;
+            font-size: 15px;
+            cursor: pointer;
+            transition: .3s;
+
+        }
+
+        button:hover {
+
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 200, 83, .35);
+
+        }
+
+        .loading {
+
+            display: none;
+            text-align: center;
+            margin-top: 15px;
+
+        }
+
+        .spinner {
+
+            width: 25px;
+            height: 25px;
+            border: 3px solid #eee;
+            border-top: 3px solid var(--verde);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: auto;
+
+        }
+
+        .sucesso {
+
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+            color: var(--verde);
+            font-weight: 600;
+
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg)
+            }
+        }
+
+        @keyframes fadeUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px)
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0)
+            }
+        }
+
+        .voltar {
+
+            margin-top: 20px;
+            text-align: center;
+
+        }
+
+        .voltar a {
+
+            color: #0066b3;
+            font-weight: 600;
+            text-decoration: none;
+
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <div class="logo">FIPE TOTAL</div>
+
+        <div class="subtitulo">
+            Digite seu email para receber o link de recuperação
+        </div>
+
+        <div class="input-group">
+            <label>Email</label>
+            <input type="email" id="email" placeholder="Digite seu email">
+        </div>
+
+        <button id="btnEnviar" onclick="recuperarSenha()">
+
+            <i class="fa fa-paper-plane"></i>
+            Enviar Link
+
+        </button>
+
+        <div class="loading" id="loading">
+
+            <div class="spinner"></div>
+            <p>Enviando email...</p>
+
+        </div>
+
+        <div class="sucesso" id="sucesso">
+
+            <i class="fa fa-check-circle"></i><br><br>
+
+            Se o email estiver cadastrado você receberá
+            um link para redefinir sua senha.
+
+        </div>
+
+        <div class="voltar">
+            <a href="/login.html">Voltar para login</a>
+        </div>
+
+    </div>
+
+    <script>
+
+        async function recuperarSenha() {
+
+            const email = document.getElementById("email").value.trim()
+
+            if (!email) {
+
+                alert("Digite seu email")
+
+                return
+
+            }
+
+            const btn = document.getElementById("btnEnviar")
+
+            btn.disabled = true
+
+            document.getElementById("loading").style.display = "block"
+
+            try {
+
+                await fetch("https://fip-total-backend.onrender.com/api/recuperar-senha", {
+
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+
+                    body: JSON.stringify({ email })
+
+                })
+
+                document.getElementById("loading").style.display = "none"
+
+                document.getElementById("sucesso").style.display = "block"
+
+            } catch (e) {
+
+                alert("Erro ao enviar email")
+
+            }
+
+            btn.disabled = false
+
+        }
+
+    </script>
+
+</body>
+
+</html>
