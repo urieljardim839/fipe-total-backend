@@ -84,19 +84,20 @@ app.use((req, res, next) => {
     "http://localhost:3000"
   ];
 
-  const origin = req.headers.origin
+  const origin = req.headers.origin;
 
-  if (origin && !allowedOrigins.includes(origin)) {
+  // Permite requisições sem origin (ex: navegador direto)
+  if (!origin) return next();
 
+  if (!allowedOrigins.includes(origin)) {
     return res.status(403).json({
       erro: "Acesso bloqueado"
-    })
-
+    });
   }
 
-  next()
+  next();
 
-})
+});
 
 app.use(express.json({ limit: "1mb" }));
 
@@ -257,13 +258,13 @@ app.post("/api/cadastro", async (req, res) => {
       [nome, sobrenome, telefone, email, senhaHash, 3]
     );
 
-    res.json(novoUsuario.rows[0]);
-
     const token = jwt.sign(
       { id: novoUsuario.rows[0].id },
       process.env.JWT_SECRET,
       { expiresIn: "1d" }
-    )
+    );
+
+    res.json(novoUsuario.rows[0]);
 
     const link = `https://engemafer.com.br/verificar-email.html?token=${token}`
 
@@ -1029,13 +1030,18 @@ app.get("/api/admin/consultas-bancarias", autenticar, verificarAdmin, async (req
       ON u.id = c.usuario_id
 
       ORDER BY c.criado_em DESC
+      LIMIT 100
     `);
 
     res.json(consultas.rows);
 
   } catch (err) {
 
-    res.status(500).json({ erro: "Erro ao buscar consultas bancárias" });
+    console.log(err);
+
+    res.status(500).json({
+      erro: "Erro ao buscar consultas bancárias"
+    });
 
   }
 
@@ -1154,6 +1160,10 @@ app.get("/api/admin/stats", autenticar, verificarAdmin, async (req, res) => {
       "SELECT COUNT(*) FROM usuarios"
     );
 
+    const bloqueados = await pool.query(
+      "SELECT COUNT(*) FROM usuarios WHERE bloqueado = TRUE"
+    );
+
     const saldo = await pool.query(
       "SELECT SUM(saldo) FROM usuarios"
     );
@@ -1168,6 +1178,7 @@ app.get("/api/admin/stats", autenticar, verificarAdmin, async (req, res) => {
 
     res.json({
       totalUsuarios: Number(usuarios.rows[0].count),
+      usuariosBloqueados: Number(bloqueados.rows[0].count),
       saldoSistema: Number(saldo.rows[0].sum || 0),
       totalConsultas: Number(consultas.rows[0].count),
       faturamento: Number(faturamento.rows[0].sum || 0)
@@ -1175,7 +1186,11 @@ app.get("/api/admin/stats", autenticar, verificarAdmin, async (req, res) => {
 
   } catch (err) {
 
-    res.status(500).json({ erro: "Erro ao carregar stats" });
+    console.log(err);
+
+    res.status(500).json({
+      erro: "Erro ao carregar stats"
+    });
 
   }
 
@@ -1214,6 +1229,79 @@ app.get("/api/admin/consultas", autenticar, verificarAdmin, async (req, res) => 
     `);
 
   res.json(consultas.rows);
+
+});
+
+/* =============================
+   LISTAR USUÁRIOS (ADMIN)
+============================= */
+
+app.get("/api/admin/usuarios", autenticar, verificarAdmin, async (req, res) => {
+
+  try {
+
+    const usuarios = await pool.query(`
+      SELECT 
+      id,
+      nome,
+      email,
+      saldo,
+      bloqueado
+      FROM usuarios
+      ORDER BY id DESC
+    `);
+
+    res.json(usuarios.rows);
+
+  } catch (err) {
+
+    console.log(err);
+
+    res.status(500).json({
+      erro: "Erro ao buscar usuários"
+    });
+
+  }
+
+});
+
+/* =============================
+   TOP CLIENTES
+============================= */
+
+app.get("/api/admin/top-clientes", autenticar, verificarAdmin, async (req, res) => {
+
+  try {
+
+    const result = await pool.query(`
+      SELECT 
+      u.id,
+      u.nome,
+      u.email,
+      COUNT(c.id) AS total_consultas,
+      SUM(c.valor_pago) AS total_gasto
+
+      FROM usuarios u
+
+      JOIN consultas c 
+      ON u.id = c.usuario_id
+
+      GROUP BY u.id
+
+      ORDER BY total_gasto DESC
+
+      LIMIT 10
+    `);
+
+    res.json(result.rows);
+
+  } catch (err) {
+
+    res.status(500).json({
+      erro: "Erro ao buscar ranking"
+    });
+
+  }
 
 });
 
