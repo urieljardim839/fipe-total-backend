@@ -254,7 +254,7 @@ app.post("/api/cadastro", async (req, res) => {
       `INSERT INTO usuarios 
    (nome, sobrenome, telefone, email, senha, saldo)
    VALUES ($1,$2,$3,$4,$5,$6)
-   RETURNING id, nome, sobrenome, email, saldo`,
+   RETURNING id, nome, sobrenome, email, saldo, is_admin`,
       [nome, sobrenome, telefone, email, senhaHash, 3]
     );
 
@@ -265,6 +265,11 @@ app.post("/api/cadastro", async (req, res) => {
       process.env.JWT_SECRET || "segredo_super",
       { expiresIn: "1d" }
     );
+
+    console.log("RETORNO CADASTRO:", {
+      token,
+      usuario
+    });
 
     res.json({
       token,
