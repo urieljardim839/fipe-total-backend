@@ -1,6 +1,10 @@
 console.log("🔥 BACKEND NOVO ATIVO 🔥")
 
 require("dotenv").config();
+
+if (!process.env.JWT_SECRET) {
+  throw new Error("JWT_SECRET não definido no ambiente");
+}
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
@@ -83,7 +87,8 @@ app.use((req, res, next) => {
   const allowedOrigins = [
     "https://engemafer.com.br",
     "https://www.engemafer.com.br",
-    "http://localhost:3000"
+    "http://localhost:3000",
+    "http://127.0.0.1:5500"
   ];
 
   const origin = req.headers.origin;
@@ -121,7 +126,7 @@ function autenticar(req, res, next) {
 
     const decoded = jwt.verify(
       token,
-      process.env.JWT_SECRET || "segredo_super"
+      process.env.JWT_SECRET
     );
 
     req.usuario = decoded;
@@ -264,7 +269,7 @@ app.post("/api/cadastro", async (req, res) => {
 
     const token = jwt.sign(
       { id: usuario.id, is_admin: usuario.is_admin },
-      process.env.JWT_SECRET || "segredo_super",
+      process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
 
@@ -273,20 +278,12 @@ app.post("/api/cadastro", async (req, res) => {
       usuario
     });
 
-    res.json({
-      token,
-      usuario
-    });
-
-    const link = `https://engemafer.com.br/verificar-email.html?token=${token}`
+    const link = `https://engemafer.com.br/verificar-email.html?token=${token}`;
 
     await transporter.sendMail({
-
       from: `"Fipe Total" <${process.env.EMAIL_USER}>`,
       to: email,
-
       subject: "Verifique seu email",
-
       html: `
 
                       <h2>Confirme sua conta</h2>
@@ -309,6 +306,13 @@ app.post("/api/cadastro", async (req, res) => {
                     `
 
     })
+
+    // 👉 RESPONDE DEPOIS
+    res.json({
+      token,
+      usuario
+    });
+
 
   } catch (error) {
     res.status(500).json({ erro: "Erro interno do servidor" });
@@ -372,7 +376,7 @@ app.post("/api/login", loginLimiter, async (req, res) => {
 
     const token = jwt.sign(
       { id: usuario.id, is_admin: usuario.is_admin },
-      process.env.JWT_SECRET || "segredo_super",
+      process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
 
@@ -397,11 +401,12 @@ app.post("/api/login", loginLimiter, async (req, res) => {
    CRIAR PAGAMENTO
 ============================= */
 
-app.post("/api/criar-pagamento", async (req, res) => {
+app.post("/api/criar-pagamento", autenticar, async (req, res) => {
 
   try {
 
-    const { valor, userId } = req.body;
+    const { valor } = req.body;
+    const userId = req.usuario.id;
 
     if (!valor || !userId)
       return res.status(400).json({ erro: "Dados inválidos" });
@@ -549,7 +554,8 @@ app.post("/api/proprietario-atual", autenticar, consultaLimiter, antiAbusoConsul
 
   try {
 
-    const { placa, userId } = req.body;
+    const { placa } = req.body;
+    const userId = req.usuario.id;
     const VALOR = 11.99;
 
     if (!placa || !userId) {
@@ -693,7 +699,8 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
 
   try {
 
-    const { placa, userId } = req.body;
+    const { placa } = req.body;
+    const userId = req.usuario.id;
     const VALOR = Number(54.90);
 
     const usuario = await pool.query(
@@ -887,11 +894,12 @@ app.get("/api/usuario/:id", async (req, res) => {
    CONSULTA BANCÁRIA (R$ 79,90)
 ============================= */
 
-app.post("/api/consulta-bancaria", consultaLimiter, antiAbusoConsulta, async (req, res) => {
+app.post("/api/consulta-bancaria", autenticar, consultaLimiter, antiAbusoConsulta, async (req, res) => {
 
   try {
 
-    const { placa, nome, sobrenome, whatsapp, email, userId } = req.body;
+    const { placa, nome, sobrenome, whatsapp, email, } = req.body;
+    const userId = req.usuario.id;
     const VALOR = 79.90;
 
     const usuario = await pool.query(
@@ -1053,7 +1061,7 @@ app.get("/api/admin/consultas-bancarias", autenticar, verificarAdmin, async (req
 
 app.post("/api/admin/bloquear", autenticar, verificarAdmin, async (req, res) => {
 
-  const userId = req.usuario.id;
+  const { userId } = req.body;
 
   try {
 
@@ -1074,7 +1082,7 @@ app.post("/api/admin/bloquear", autenticar, verificarAdmin, async (req, res) => 
 
 app.post("/api/admin/desbloquear", autenticar, verificarAdmin, async (req, res) => {
 
-  const userId = req.usuario.id;
+  const { userId } = req.body;
 
   try {
 
@@ -1139,13 +1147,12 @@ app.post("/api/admin/excluir-usuario", autenticar, verificarAdmin, async (req, r
 
   try {
 
-    const userId = req.usuario.id;
+    const { userId } = req.body;
 
     await pool.query(
       "DELETE FROM usuarios WHERE id = $1",
       [userId]
     );
-
     res.json({ sucesso: true });
 
   } catch (err) {
@@ -1329,7 +1336,7 @@ app.post("/api/recuperar-senha", async (req, res) => {
 
     const token = jwt.sign(
       { id: user.id },
-      process.env.JWT_SECRET || "segredo_super",
+      process.env.JWT_SECRET,
       { expiresIn: "15m" }
     );
 
@@ -1384,7 +1391,7 @@ app.post("/api/nova-senha", async (req, res) => {
 
     const decoded = jwt.verify(
       token,
-      process.env.JWT_SECRET || "segredo_super"
+      process.env.JWT_SECRET
     );
 
     const senhaHash = await bcrypt.hash(senha, 10);
