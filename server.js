@@ -281,11 +281,20 @@ app.post("/api/cadastro", async (req, res) => {
 
     const link = `https://engemafer.com.br/verificar-email.html?token=${token}`;
 
-    await transporter.sendMail({
-      from: `"Fipe Total" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: "Verifique seu email",
-      html: `
+    // 👉 responde primeiro (NUNCA QUEBRA)
+    res.json({
+      token,
+      usuario
+    });
+
+    // 👉 email separado (não quebra sistema)
+    try {
+
+      await transporter.sendMail({
+        from: `"Fipe Total" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: "Verifique seu email",
+        html: `
 
                       <h2>Confirme sua conta</h2>
 
@@ -306,19 +315,19 @@ app.post("/api/cadastro", async (req, res) => {
 
                     `
 
-    })
 
-    // 👉 RESPONDE DEPOIS
-    res.json({
-      token,
-      usuario
-    });
+      });
 
+    } catch (err) {
+      console.log("ERRO EMAIL:", err.message);
+    }
 
-  } catch (error) {
-    res.status(500).json({ erro: "Erro interno do servidor" });
-  }
-});
+    } catch (error) {
+      console.log("ERRO CADASTRO:", error);
+      res.status(500).json({ erro: "Erro interno do servidor" });
+    }
+
+  });
 
 app.get("/api/verificar-email", async (req, res) => {
 
