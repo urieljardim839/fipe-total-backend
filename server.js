@@ -250,7 +250,6 @@ app.post("/api/cadastro", async (req, res) => {
     return res.status(400).json({ erro: "As senhas não coincidem" });
 
   try {
-
     const usuarioExistente = await pool.query(
       "SELECT * FROM usuarios WHERE email = $1",
       [email]
@@ -263,9 +262,9 @@ app.post("/api/cadastro", async (req, res) => {
 
     const novoUsuario = await pool.query(
       `INSERT INTO usuarios 
-   (nome, sobrenome, telefone, email, senha, saldo)
-   VALUES ($1,$2,$3,$4,$5,$6)
-   RETURNING id, nome, sobrenome, email, saldo, is_admin`,
+       (nome, sobrenome, telefone, email, senha, saldo)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING id, nome, sobrenome, email, saldo, is_admin`,
       [nome, sobrenome, telefone, email, senhaHash, 3]
     );
 
@@ -277,41 +276,19 @@ app.post("/api/cadastro", async (req, res) => {
       { expiresIn: "1d" }
     );
 
-    console.log("RETORNO CADASTRO:", {
-      token,
-      usuario
-    });
+    res.json({ token, usuario });
 
     const link = `https://engemafer.com.br/verificar-email.html?token=${token}`;
 
-    // 👉 responde primeiro (NUNCA QUEBRA)
-    res.json({
-      token,
-      usuario
-    });
-
-    // NÃO deixe nada quebrar depois
     setImmediate(async () => {
       try {
         await transporter.sendMail({
           from: `"Fipe Total" <${process.env.EMAIL_USER}>`,
           to: email,
           subject: "Verifique seu email",
-          html: `
-        <h2>Confirme sua conta</h2>
-        <p>Clique no botão abaixo para ativar sua conta.</p>
-
-        <a href="${link}" style="
-          background:#0066b3;
-          color:white;
-          padding:12px 20px;
-          border-radius:8px;
-          text-decoration:none;
-          font-weight:bold;
-        ">
-          Confirmar Email
-        </a>
-      `
+          html: `<h2>Confirme sua conta</h2>
+                 <p>Clique abaixo:</p>
+                 <a href="${link}">Confirmar Email</a>`
         });
       } catch (err) {
         console.log("ERRO EMAIL:", err.message);
@@ -322,9 +299,7 @@ app.post("/api/cadastro", async (req, res) => {
     console.log("ERRO CADASTRO:", error);
     res.status(500).json({ erro: "Erro interno do servidor" });
   }
-
-}); // ✅ FECHA A ROTA AQUI
-
+});
 
 app.get("/api/verificar-email", async (req, res) => {
 
