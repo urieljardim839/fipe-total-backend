@@ -71,10 +71,11 @@ app.use((req, res, next) => {
 ============================= */
 
 const globalLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minuto
+  windowMs: 60 * 1000,
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
+  trustProxy: true, // 🔥 ADICIONE ISSO
   message: {
     erro: "Muitas requisições. Aguarde alguns segundos."
   }
@@ -159,12 +160,14 @@ function verificarAdmin(req, res, next) {
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
   max: 20,
+  trustProxy: true,
   message: { erro: "Muitas tentativas. Tente novamente em 15 minutos." }
 });
 
 const consultaLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minuto
   max: 10,
+  trustProxy: true,
   message: { erro: "Muitas consultas. Aguarde 1 minuto." }
 });
 
@@ -287,47 +290,41 @@ app.post("/api/cadastro", async (req, res) => {
       usuario
     });
 
-    // 👉 email separado (não quebra sistema)
-    try {
+    // NÃO deixe nada quebrar depois
+    setImmediate(async () => {
+      try {
+        await transporter.sendMail({
+          from: `"Fipe Total" <${process.env.EMAIL_USER}>`,
+          to: email,
+          subject: "Verifique seu email",
+          html: `
+        <h2>Confirme sua conta</h2>
+        <p>Clique no botão abaixo para ativar sua conta.</p>
 
-      await transporter.sendMail({
-        from: `"Fipe Total" <${process.env.EMAIL_USER}>`,
-        to: email,
-        subject: "Verifique seu email",
-        html: `
+        <a href="${link}" style="
+          background:#0066b3;
+          color:white;
+          padding:12px 20px;
+          border-radius:8px;
+          text-decoration:none;
+          font-weight:bold;
+        ">
+          Confirmar Email
+        </a>
+      `
+        });
+      } catch (err) {
+        console.log("ERRO EMAIL:", err.message);
+      }
+    });
 
-                      <h2>Confirme sua conta</h2>
+  } catch (error) {
+    console.log("ERRO CADASTRO:", error);
+    res.status(500).json({ erro: "Erro interno do servidor" });
+  }
 
-                      <p>Clique no botão abaixo para ativar sua conta.</p>
+}); // ✅ FECHA A ROTA AQUI
 
-                      <a href="${link}" style="
-                      background:#0066b3;
-                      color:white;
-                      padding:12px 20px;
-                      border-radius:8px;
-                      text-decoration:none;
-                      font-weight:bold;
-                      ">
-
-                      Confirmar Email
-
-                      </a>
-
-                    `
-
-
-      });
-
-    } catch (err) {
-      console.log("ERRO EMAIL:", err.message);
-    }
-
-    } catch (error) {
-      console.log("ERRO CADASTRO:", error);
-      res.status(500).json({ erro: "Erro interno do servidor" });
-    }
-
-  });
 
 app.get("/api/verificar-email", async (req, res) => {
 
