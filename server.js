@@ -168,7 +168,7 @@ const consultasUsuario = {};
 
 function antiAbusoConsulta(req, res, next) {
 
-  const { userId } = req.body;
+  const userId = req.usuario.id;
 
   if (!userId) return next();
 
@@ -258,13 +258,18 @@ app.post("/api/cadastro", async (req, res) => {
       [nome, sobrenome, telefone, email, senhaHash, 3]
     );
 
+    const usuario = novoUsuario.rows[0];
+
     const token = jwt.sign(
-      { id: novoUsuario.rows[0].id },
-      process.env.JWT_SECRET,
+      { id: usuario.id, is_admin: usuario.is_admin },
+      process.env.JWT_SECRET || "segredo_super",
       { expiresIn: "1d" }
     );
 
-    res.json(novoUsuario.rows[0]);
+    res.json({
+      token,
+      usuario
+    });
 
     const link = `https://engemafer.com.br/verificar-email.html?token=${token}`
 
@@ -334,28 +339,19 @@ app.post("/api/login", loginLimiter, async (req, res) => {
   const { email, senha } = req.body;
 
   try {
-    console.log("Email recebido:", email);
 
     const result = await pool.query(
       "SELECT * FROM usuarios WHERE email = $1",
       [email]
     );
 
-    console.log("Resultado banco:", result.rows);
-
     if (result.rows.length === 0) {
       return res.status(400).json({ erro: "Usuário não encontrado" });
     }
 
-    const usuario = result.rows[0];
+    const usuario = result.rows[0]; // 🔥 FALTAVA ISSO
 
-    if (!usuario.email_verificado) {
-
-      return res.status(403).json({
-        erro: "Verifique seu email antes de entrar."
-      })
-
-    }
+    // 🔥 LIBERA LOGIN DIRETO (REMOVE BLOQUEIO)
 
     if (usuario.bloqueado) {
       return res.status(403).json({ erro: "Usuário bloqueado" });
@@ -385,6 +381,7 @@ app.post("/api/login", loginLimiter, async (req, res) => {
     });
 
   } catch (err) {
+    console.log(err); // 👉 importante pra debug
     res.status(500).json({ erro: "Erro no servidor" });
   }
 });
@@ -541,7 +538,7 @@ app.post("/api/webhook-mercadopago", async (req, res) => {
    CONSULTA PROPRIETÁRIO (R$11,99)
 ============================= */
 
-app.post("/api/proprietario-atual", consultaLimiter, antiAbusoConsulta, async (req, res) => {
+app.post("/api/proprietario-atual", autenticar, consultaLimiter, antiAbusoConsulta, async (req, res) => {
 
   try {
 
@@ -685,7 +682,7 @@ app.post("/api/proprietario-atual", consultaLimiter, antiAbusoConsulta, async (r
    CONSULTA COMPLETA (R$54,90)
 ============================= */
 
-app.post("/api/consulta-completa", consultaLimiter, antiAbusoConsulta, async (req, res) => {
+app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsulta, async (req, res) => {
 
   try {
 
@@ -785,7 +782,7 @@ app.post("/api/consulta-completa", consultaLimiter, antiAbusoConsulta, async (re
    CONSULTA FIPE (GRÁTIS)
 ============================= */
 
-app.get("/api/placafipe/:placa/:usuario_id?", consultaLimiter, async (req, res) => {
+app.get("/api/placafipe/:placa/:usuario_id?", autenticar, consultaLimiter, async (req, res) => {
 
   try {
 
@@ -837,9 +834,9 @@ app.get("/api/placafipe/:placa/:usuario_id?", consultaLimiter, async (req, res) 
    HISTÓRICO
 ============================= */
 
-app.get("/api/historico/:usuario_id", async (req, res) => {
+app.get("/api/historico", autenticar, async (req, res) => {
 
-  const { usuario_id } = req.params;
+  const usuario_id = req.usuario.id;
 
   try {
 
@@ -1049,7 +1046,7 @@ app.get("/api/admin/consultas-bancarias", autenticar, verificarAdmin, async (req
 
 app.post("/api/admin/bloquear", autenticar, verificarAdmin, async (req, res) => {
 
-  const { userId } = req.body;
+  const userId = req.usuario.id;
 
   try {
 
@@ -1070,7 +1067,7 @@ app.post("/api/admin/bloquear", autenticar, verificarAdmin, async (req, res) => 
 
 app.post("/api/admin/desbloquear", autenticar, verificarAdmin, async (req, res) => {
 
-  const { userId } = req.body;
+  const userId = req.usuario.id;
 
   try {
 
@@ -1135,7 +1132,7 @@ app.post("/api/admin/excluir-usuario", autenticar, verificarAdmin, async (req, r
 
   try {
 
-    const { userId } = req.body;
+    const userId = req.usuario.id;
 
     await pool.query(
       "DELETE FROM usuarios WHERE id = $1",
