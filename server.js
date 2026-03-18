@@ -35,21 +35,13 @@ app.use(cors());
 
 app.use((req, res, next) => {
 
-  const ua = req.headers["user-agent"];
-
-  if (!ua) {
-    return res.status(403).json({
-      erro: "Acesso bloqueado"
-    });
-  }
+  const ua = req.headers["user-agent"] || "";
 
   const bots = [
     "curl",
     "wget",
     "python",
-    "scrapy",
-    "postman",
-    "insomnia"
+    "scrapy"
   ];
 
   const blocked = bots.some(bot =>
@@ -58,7 +50,7 @@ app.use((req, res, next) => {
 
   if (blocked) {
     return res.status(403).json({
-      erro: "Bot detectado"
+      erro: "Acesso não permitido"
     });
   }
 
