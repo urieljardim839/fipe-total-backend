@@ -685,25 +685,25 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
 
     const placaFormatada = placa.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
-    // 🔎 1. CACHE GLOBAL (QUALQUER USUÁRIO - 7 dias)
-    const cacheGlobal = await pool.query(`
-    SELECT * FROM consultas
-    WHERE placa = $1
-    AND criado_em > NOW() - INTERVAL '7 days'
-    ORDER BY criado_em DESC
-    LIMIT 1
-`, [placaFormatada]);
+    // 🔎 VERIFICAR SE VOCÊ JÁ CONSULTOU ESSA PLACA RECENTE
+    const consultaRecente = await pool.query(`
+        SELECT * FROM consultas
+        WHERE usuario_id = $1
+        AND placa = $2
+        AND criado_em > NOW() - INTERVAL '5 minutes'
+        ORDER BY criado_em DESC
+        LIMIT 1
+    `, [userId, placaFormatada]);
 
-    if (cacheGlobal.rows.length > 0) {
-
-      console.log("⚡ CACHE GLOBAL USADO");
+    if (consultaRecente.rows.length > 0) {
 
       return res.json({
         sucesso: true,
-        dados: cacheGlobal.rows[0].dados_json,
-        cache: true,
-        novoSaldo: saldo // não cobra
+        dados: consultaRecente.rows[0].dados_json,
+        repetida: true,
+        novoSaldo: saldo
       });
+
     }
 
     // 🔎 2. VERIFICAR SE O USUÁRIO JÁ CONSULTOU
@@ -724,14 +724,6 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
         repetida: true,
         novoSaldo: saldo // não cobra
       });
-    }
-
-    if (consultaRecente.rows.length > 0) {
-
-      return res.status(400).json({
-        erro: "Essa placa já foi consultada recentemente."
-      })
-
     }
 
     const response = await axios.post(
