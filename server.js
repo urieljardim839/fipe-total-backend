@@ -296,10 +296,15 @@ app.post("/api/cadastro", async (req, res) => {
     });
 
   } catch (error) {
-    console.log("ERRO CADASTRO COMPLETO:", error);
+    console.log("ERRO REAL CADASTRO:");
+    console.log(error);
     console.log("DETAIL:", error.detail);
     console.log("CODE:", error.code);
-    res.status(500).json({ erro: "Erro interno do servidor" });
+
+    res.status(500).json({
+      erro: error.message,
+      detail: error.detail
+    });
   }
 });
 
