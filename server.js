@@ -85,26 +85,9 @@ app.use(globalLimiter);
 
 
 app.use((req, res, next) => {
-
-  const allowedOrigins = [
-    "https://engemafer.com.br",
-    "https://www.engemafer.com.br",
-    "http://localhost:3000",
-    "http://127.0.0.1:5500"
-  ];
-
-  const origin = req.headers.origin;
-
-  // Permite requisições sem origin (ex: navegador direto)
-  if (!origin) return next();
-
-  if (!allowedOrigins.includes(origin)) {
-    return res.status(403).json({
-      erro: "Acesso bloqueado"
-    });
-  }
-
-  next();
+  
+  // Libera tudo temporariamente
+  next()
 
 });
 
