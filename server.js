@@ -685,15 +685,46 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
 
     const placaFormatada = placa.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
-    const consultaRecente = await pool.query(
-      `
-        SELECT * FROM consultas
-        WHERE usuario_id = $1
-        AND placa = $2
-        AND criado_em > NOW() - INTERVAL '5 minutes'
-      `,
-      [userId, placaFormatada]
-    );
+    // 🔎 1. CACHE GLOBAL (QUALQUER USUÁRIO - 7 dias)
+    const cacheGlobal = await pool.query(`
+    SELECT * FROM consultas
+    WHERE placa = $1
+    AND criado_em > NOW() - INTERVAL '7 days'
+    ORDER BY criado_em DESC
+    LIMIT 1
+`, [placaFormatada]);
+
+    if (cacheGlobal.rows.length > 0) {
+
+      console.log("⚡ CACHE GLOBAL USADO");
+
+      return res.json({
+        sucesso: true,
+        dados: cacheGlobal.rows[0].dados_json,
+        cache: true,
+        novoSaldo: saldo // não cobra
+      });
+    }
+
+    // 🔎 2. VERIFICAR SE O USUÁRIO JÁ CONSULTOU
+    const consultaUsuario = await pool.query(`
+    SELECT * FROM consultas
+    WHERE usuario_id = $1
+    AND placa = $2
+    LIMIT 1
+`, [userId, placaFormatada]);
+
+    if (consultaUsuario.rows.length > 0) {
+
+      console.log("♻️ CONSULTA REPETIDA");
+
+      return res.json({
+        sucesso: true,
+        dados: consultaUsuario.rows[0].dados_json,
+        repetida: true,
+        novoSaldo: saldo // não cobra
+      });
+    }
 
     if (consultaRecente.rows.length > 0) {
 
