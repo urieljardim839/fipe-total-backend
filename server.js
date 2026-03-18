@@ -388,7 +388,7 @@ app.post("/api/criar-pagamento", autenticar, async (req, res) => {
           userId: userId,
           valor: valor
         },
-        notification_url: "https://fip-total-backend.onrender.com/api/webhook-mercadopago",
+        notification_url: "https://fipe-total-backend.onrender.com/api/webhook-mercadopago",
         back_urls: {
           success: `https://engemafer.com.br/sucesso.html?valor=${valor}`,
           failure: "https://engemafer.com.br/erro.html",
