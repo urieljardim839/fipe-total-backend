@@ -75,7 +75,6 @@ const globalLimiter = rateLimit({
   max: 100,
   standardHeaders: true,
   legacyHeaders: false,
-  trustProxy: true, // 🔥 ADICIONE ISSO
   message: {
     erro: "Muitas requisições. Aguarde alguns segundos."
   }
@@ -85,7 +84,7 @@ app.use(globalLimiter);
 
 
 app.use((req, res, next) => {
-  
+
   // Libera tudo temporariamente
   next()
 
@@ -143,14 +142,12 @@ function verificarAdmin(req, res, next) {
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
   max: 20,
-  trustProxy: true,
   message: { erro: "Muitas tentativas. Tente novamente em 15 minutos." }
 });
 
 const consultaLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minuto
   max: 10,
-  trustProxy: true,
   message: { erro: "Muitas consultas. Aguarde 1 minuto." }
 });
 
