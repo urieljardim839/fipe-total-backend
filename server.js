@@ -559,7 +559,7 @@ app.post("/api/proprietario-atual", autenticar, consultaLimiter, antiAbusoConsul
       SELECT id FROM consultas
       WHERE usuario_id = $1
       AND placa = $2
-      AND criado_em > NOW() - INTERVAL '5 minutes'
+      AND criado_em > NOW() - INTERVAL '10 minutes'
       `,
       [userId, placaFormatada]
     );
@@ -662,7 +662,7 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
 
     const { placa } = req.body;
     const userId = req.usuario.id;
-    const VALOR = Number(54.90);
+    const VALOR = 54.90;
 
     const usuario = await pool.query(
       "SELECT saldo, bloqueado FROM usuarios WHERE id = $1",
@@ -672,78 +672,107 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
     if (!usuario.rows.length)
       return res.status(404).json({ erro: "Usuário não encontrado" });
 
-
-
     const saldo = Number(usuario.rows[0].saldo);
 
-    if (usuario.rows[0].bloqueado) {
+    if (usuario.rows[0].bloqueado)
       return res.status(403).json({ erro: "Conta bloqueada" });
-    }
 
     if (saldo < VALOR)
       return res.status(403).json({ erro: "Saldo insuficiente" });
 
     const placaFormatada = placa.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
-    // 🔎 VERIFICAR SE VOCÊ JÁ CONSULTOU ESSA PLACA RECENTE
-    const consultaRecente = await pool.query(`
-        SELECT * FROM consultas
-        WHERE usuario_id = $1
-        AND placa = $2
-        AND criado_em > NOW() - INTERVAL '5 minutes'
-        ORDER BY criado_em DESC
-        LIMIT 1
+    // 🔥 CACHE (EVITA COBRANÇA REPETIDA)
+    const consultaCache = await pool.query(`
+      SELECT * FROM consultas
+      WHERE usuario_id = $1
+      AND placa = $2
+      AND criado_em > NOW() - INTERVAL '10 minutes'
+      LIMIT 1
     `, [userId, placaFormatada]);
 
-    if (consultaRecente.rows.length > 0) {
-
+    if (consultaCache.rows.length > 0) {
       return res.json({
         sucesso: true,
-        dados: consultaRecente.rows[0].dados_json,
-        repetida: true,
+        dados: consultaCache.rows[0].dados_json,
+        cache: true,
         novoSaldo: saldo
       });
+    }
+
+    // 🔥 FUNÇÃO PADRÃO CHECKPRO
+    async function consultar(endpoint) {
+
+      try {
+
+        const response = await axios.post(
+          `https://ws2.checkpro.com.br/servicejson.asmx/${endpoint}`,
+          new URLSearchParams({
+            cpfUsuario: process.env.CHECKPRO_CPF,
+            senhaUsuario: process.env.CHECKPRO_SENHA,
+            placa: placaFormatada
+          }),
+          {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded"
+            },
+            timeout: 20000
+          }
+        );
+
+        return response.data;
+
+      } catch (err) {
+        return { erro: true, mensagem: err.message };
+      }
 
     }
 
-    // 🔎 2. VERIFICAR SE O USUÁRIO JÁ CONSULTOU
-    const consultaUsuario = await pool.query(`
-    SELECT * FROM consultas
-    WHERE usuario_id = $1
-    AND placa = $2
-    LIMIT 1
-`, [userId, placaFormatada]);
+    // 🔥 EXECUTA TODAS CONSULTAS EM PARALELO
+    const [
+      base,
+      gravame,
+      renajud,
+      leilao,
+      indsis,
+      sinistro,
+      km,
+      chassi,
+      bdrf,
+      precificador,
+      remarketing
+    ] = await Promise.all([
 
-    if (consultaUsuario.rows.length > 0) {
+      consultar("ConsultaBaseEstadualPorPlaca"),
+      consultar("ConsultaGravamePorPlaca"),
+      consultar("ConsultaRenajudPorPlaca"),
+      consultar("ConsultaLeilaoPorPlaca"),
+      consultar("ConsultaINDSISPorPlaca"),
+      consultar("ConsultaHistoricoAcidentesPorPlaca"),
+      consultar("ConsultaHistoricoKMPorPlaca"),
+      consultar("ConsultaDecodeChassi"),
+      consultar("ConsultaBdrfPorPlaca"),
+      consultar("ConsultaPrecificadorPorPlaca"),
+      consultar("ConsultaRemarketingAutomotivoPorPlaca")
 
-      console.log("♻️ CONSULTA REPETIDA");
+    ]);
 
-      return res.json({
-        sucesso: true,
-        dados: consultaUsuario.rows[0].dados_json,
-        repetida: true,
-        novoSaldo: saldo // não cobra
-      });
-    }
+    // 🔥 JUNTA TUDO
+    const resultadoFinal = {
+      ConsultaBaseEstadualPorPlaca: base,
+      ConsultaGravamePorPlaca: gravame,
+      ConsultaRenajudPorPlaca: renajud,
+      ConsultaLeilaoPorPlaca: leilao,
+      ConsultaINDSISPorPlaca: indsis,
+      ConsultaHistoricoAcidentesPorPlaca: sinistro,
+      ConsultaHistoricoKMPorPlaca: km,
+      ConsultaDecodeChassi: chassi,
+      ConsultaBdrfPorPlaca: bdrf,
+      ConsultaPrecificadorPorPlaca: precificador,
+      ConsultaRemarketingAutomotivoPorPlaca: remarketing
+    };
 
-    const response = await axios.post(
-      "https://ws2.checkpro.com.br/servicejson.asmx/ConsultaPacoteCompletoPorPlaca",
-      new URLSearchParams({
-        cpfUsuario: process.env.CHECKPRO_CPF,
-        senhaUsuario: process.env.CHECKPRO_SENHA,
-        placa: placaFormatada
-      }),
-      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-    );
-
-    const data = response.data;
-
-    console.log("Resposta CheckPro COMPLETA:", data);
-
-    if (String(data.StatusRetorno) !== "1")
-      return res.json({ erro: data.MensagemRetorno });
-
-    // 🔒 Transação segura
+    // 🔒 TRANSAÇÃO
     await pool.query("BEGIN");
 
     await pool.query(
@@ -752,23 +781,25 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
     );
 
     await pool.query(
-      "INSERT INTO consultas (usuario_id, placa, valor_pago, dados_json) VALUES ($1,$2,$3,$4)",
-      [userId, placaFormatada, VALOR, data]
+      `INSERT INTO consultas 
+       (usuario_id, placa, valor_pago, dados_json)
+       VALUES ($1,$2,$3,$4)`,
+      [userId, placaFormatada, VALOR, resultadoFinal]
     );
 
     await pool.query("COMMIT");
 
     res.json({
       sucesso: true,
-      dados: data,
+      dados: resultadoFinal,
       novoSaldo: saldo - VALOR
     });
 
   } catch (error) {
 
-    try {
-      await pool.query("ROLLBACK");
-    } catch { }
+    try { await pool.query("ROLLBACK"); } catch { }
+
+    console.log("ERRO CONSULTA COMPLETA:", error.message);
 
     res.status(500).json({ erro: "Erro interno do servidor" });
 
