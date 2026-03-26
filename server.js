@@ -758,18 +758,26 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
     ]);
 
     // 🔥 JUNTA TUDO
+    function tratar(dado) {
+      if (!dado) return {};
+
+      if (dado.ObjetoRetorno) return dado.ObjetoRetorno;
+
+      return dado;
+    }
+
     const resultadoFinal = {
-      ConsultaBaseEstadualPorPlaca: base,
-      ConsultaGravamePorPlaca: gravame,
-      ConsultaRenajudPorPlaca: renajud,
-      ConsultaLeilaoPorPlaca: leilao,
-      ConsultaINDSISPorPlaca: indsis,
-      ConsultaHistoricoAcidentesPorPlaca: sinistro,
-      ConsultaHistoricoKMPorPlaca: km,
-      ConsultaDecodeChassi: chassi,
-      ConsultaBdrfPorPlaca: bdrf,
-      ConsultaPrecificadorPorPlaca: precificador,
-      ConsultaRemarketingAutomotivoPorPlaca: remarketing
+      base: tratar(base),
+      gravame: tratar(gravame),
+      renajud: tratar(renajud),
+      leilao: tratar(leilao),
+      indsis: tratar(indsis),
+      sinistro: tratar(sinistro),
+      km: tratar(km),
+      chassi: tratar(chassi),
+      bdrf: tratar(bdrf),
+      fipe: tratar(precificador),
+      remarketing: tratar(remarketing)
     };
 
     // 🔒 TRANSAÇÃO
