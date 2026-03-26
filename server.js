@@ -846,14 +846,6 @@ app.get("/api/placafipe/:placa/:usuario_id?", autenticar, consultaLimiter, async
       return res.json({ erro: data.msg });
     }
 
-    // salva histórico se logado
-    if (usuario_id) {
-      await pool.query(
-        "INSERT INTO consultas (usuario_id, placa, valor_pago, dados_json, tipo) VALUES ($1,$2,$3,$4,$5)",
-        [usuario_id, placaFormatada, 0, data]
-      );
-    }
-
     res.json(data);
 
   } catch (error) {
