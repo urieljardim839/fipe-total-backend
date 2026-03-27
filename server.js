@@ -677,8 +677,10 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
     if (usuario.rows[0].bloqueado)
       return res.status(403).json({ erro: "Conta bloqueada" });
 
-    //if (saldo < VALOR)
-    //return res.status(403).json({ erro: "Saldo insuficiente" });
+    // 🔥 VALIDA SALDO
+    if (saldo < VALOR) {
+      return res.status(403).json({ erro: "Saldo insuficiente" });
+    }
 
     const placaFormatada = placa.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
@@ -783,15 +785,17 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
     // 🔒 TRANSAÇÃO
     await pool.query("BEGIN");
 
-    //await pool.query(
-    //  "UPDATE usuarios SET saldo = saldo - $1 WHERE id = $2",
-    //  [VALOR, userId]
-    //);
+    // 🔥 DESCONTA SALDO
+    await pool.query(
+      "UPDATE usuarios SET saldo = saldo - $1 WHERE id = $2",
+      [VALOR, userId]
+    );
 
+    // 🔥 SALVA CONSULTA
     await pool.query(
       `INSERT INTO consultas 
-       (usuario_id, placa, valor_pago, dados_json)
-       VALUES ($1,$2,$3,$4)`,
+   (usuario_id, placa, valor_pago, dados_json)
+   VALUES ($1,$2,$3,$4)`,
       [userId, placaFormatada, VALOR, resultadoFinal]
     );
 
