@@ -250,7 +250,7 @@ app.post("/api/cadastro", async (req, res) => {
 
     res.json({ token, usuario });
 
-    const link = `https://engemafer.com.br/verificar-email.html?token=${token}`;
+    const link = `https://fipetotal.com.br/verificar-email.html?token=${token}`;
 
     setImmediate(async () => {
       try {
@@ -390,9 +390,9 @@ app.post("/api/criar-pagamento", autenticar, async (req, res) => {
         },
         notification_url: "https://fipe-total-backend.onrender.com/api/webhook-mercadopago",
         back_urls: {
-          success: `https://engemafer.com.br/sucesso.html?valor=${valor}`,
-          failure: "https://engemafer.com.br/erro.html",
-          pending: "https://engemafer.com.br/pendente.html"
+          success: `https://fipetotal.com.br/sucesso.html?valor=${valor}`,
+          failure: "https://fipetotal.com.br/erro.html",
+          pending: "https://fipetotal.com.br/pendente.html"
         },
         auto_return: "approved"
       }
@@ -508,7 +508,7 @@ app.post("/api/webhook-mercadopago", async (req, res) => {
 });
 
 /* =============================
-   CONSULTA PROPRIETÁRIO (R$11,99)
+   CONSULTA PROPRIETÁRIO (R$7,90)
 ============================= */
 
 app.post("/api/proprietario-atual", autenticar, consultaLimiter, antiAbusoConsulta, async (req, res) => {
@@ -517,7 +517,7 @@ app.post("/api/proprietario-atual", autenticar, consultaLimiter, antiAbusoConsul
 
     const { placa } = req.body;
     const userId = req.usuario.id;
-    const VALOR = 11.99;
+    const VALOR = 7.90;
 
     if (!placa || !userId) {
       return res.status(400).json({ erro: "Dados inválidos" });
@@ -653,7 +653,7 @@ app.post("/api/proprietario-atual", autenticar, consultaLimiter, antiAbusoConsul
 });
 
 /* =============================
-   CONSULTA COMPLETA (R$54,90)
+   CONSULTA COMPLETA (R$34,90)
 ============================= */
 
 app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsulta, async (req, res) => {
@@ -662,7 +662,7 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
 
     const { placa } = req.body;
     const userId = req.usuario.id;
-    const VALOR = 54.90;
+    const VALOR = 34.90;
 
     const usuario = await pool.query(
       "SELECT saldo, bloqueado FROM usuarios WHERE id = $1",
@@ -1359,7 +1359,7 @@ app.post("/api/recuperar-senha", async (req, res) => {
       { expiresIn: "15m" }
     );
 
-    const link = `https://engemafer.com.br/nova-senha.html?token=${token}`;
+    const link = `https://fipetotal.com.br/nova-senha.html?token=${token}`;
 
     await transporter.sendMail({
 
