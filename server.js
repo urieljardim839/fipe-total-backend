@@ -652,17 +652,29 @@ app.post("/api/proprietario-atual", autenticar, consultaLimiter, antiAbusoConsul
 
 });
 
-/* =============================
+/* =============================x
    CONSULTA COMPLETA (R$34,90)
 ============================= */
 
 app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsulta, async (req, res) => {
+
+  const startTime = Date.now();
 
   try {
 
     const { placa } = req.body;
     const userId = req.usuario.id;
     const VALOR = 34.90;
+
+    if (!placa) {
+      return res.status(400).json({ erro: "Placa inválida" });
+    }
+
+    const placaFormatada = placa.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+    // =============================
+    // 🔒 USUÁRIO
+    // =============================
 
     const usuario = await pool.query(
       "SELECT saldo, bloqueado FROM usuarios WHERE id = $1",
@@ -677,15 +689,14 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
     if (usuario.rows[0].bloqueado)
       return res.status(403).json({ erro: "Conta bloqueada" });
 
-    // 🔥 VALIDA SALDO
-    if (saldo < VALOR) {
+    if (saldo < VALOR)
       return res.status(403).json({ erro: "Saldo insuficiente" });
-    }
 
-    const placaFormatada = placa.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    // =============================
+    // 🧠 CACHE
+    // =============================
 
-    // 🔥 CACHE (EVITA COBRANÇA REPETIDA)
-    const consultaCache = await pool.query(`
+    const cache = await pool.query(`
       SELECT * FROM consultas
       WHERE usuario_id = $1
       AND placa = $2
@@ -693,127 +704,153 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
       LIMIT 1
     `, [userId, placaFormatada]);
 
-    if (consultaCache.rows.length > 0) {
+    if (cache.rows.length > 0) {
       return res.json({
         sucesso: true,
-        dados: consultaCache.rows[0].dados_json,
+        dados: cache.rows[0].dados_json,
         cache: true,
         novoSaldo: saldo
       });
     }
 
-    // 🔥 FUNÇÃO PADRÃO CHECKPRO
-    async function consultar(endpoint) {
+    // =============================
+    // 🔥 FUNÇÃO INFOSIMPLES
+    // =============================
+
+    async function consultar(servico, params) {
 
       try {
 
         const response = await axios.post(
-          `https://ws2.checkpro.com.br/servicejson.asmx/${endpoint}`,
-          new URLSearchParams({
-            cpfUsuario: process.env.CHECKPRO_CPF,
-            senhaUsuario: process.env.CHECKPRO_SENHA,
-            placa: placaFormatada
-          }),
+          `https://api.infosimples.com/api/v2/consultas/${servico}`,
           {
-            headers: {
-              "Content-Type": "application/x-www-form-urlencoded"
-            },
-            timeout: 20000
-          }
+            token: process.env.INFOSIMPLES_TOKEN,
+            timeout: 60,
+            ...params
+          },
+          { timeout: 70000 }
         );
 
-        return response.data;
+        if (response.data.code === 200) {
+          return {
+            status: "ok",
+            dados: response.data.data[0] || response.data.data
+          };
+        }
+
+        return {
+          status: "erro",
+          mensagem: response.data.code_message
+        };
 
       } catch (err) {
-        return { erro: true, mensagem: err.message };
+
+        console.log(`Erro ${servico}:`, err.message);
+
+        return {
+          status: "erro",
+          mensagem: "Falha na API"
+        };
+
       }
 
     }
 
-    // 🔥 EXECUTA TODAS CONSULTAS EM PARALELO
-    const [
-      base,
-      gravame,
-      renajud,
-      leilao,
-      indsis,
-      sinistro,
-      km,
-      chassi,
-      bdrf,
-      precificador,
-      remarketing
-    ] = await Promise.all([
+    // =============================
+    // 🚀 1. SENATRAN (PRIMEIRO)
+    // =============================
 
-      consultar("ConsultaBaseEstadualPorPlaca"),
-      consultar("ConsultaGravamePorPlaca"),
-      consultar("ConsultaRenajudPorPlaca"),
-      consultar("ConsultaLeilaoPorPlaca"),
-      consultar("ConsultaINDSISPorPlaca"),
-      consultar("ConsultaHistoricoAcidentesPorPlaca"),
-      consultar("ConsultaHistoricoKMPorPlaca"),
-      consultar("ConsultaDecodeChassi"),
-      consultar("ConsultaBdrfPorPlaca"),
-      consultar("ConsultaPrecificadorPorPlaca"),
-      consultar("ConsultaRemarketingAutomotivoPorPlaca")
+    const senatran = await consultar("senatran/veiculo", {
+      placa: placaFormatada
+    });
+
+    if (senatran.status !== "ok") {
+      return res.status(400).json({
+        erro: "Não foi possível consultar veículo"
+      });
+    }
+
+    const base = senatran.dados;
+
+    const renavam = base.renavam;
+    const chassi = base.chassi;
+
+    // =============================
+    // 🚀 2. OUTRAS CONSULTAS
+    // =============================
+
+    const [gravame, debitos, multas, renajud] = await Promise.all([
+
+      consultar("detran/ba/gravame", { chassi }),
+
+      consultar("detran/ba/debitos", { renavam }),
+
+      consultar("detran/ba/multas", { renavam }),
+
+      consultar("detran/al/renajud", {
+        placa: placaFormatada,
+        renavam
+      })
 
     ]);
 
-    // 🔥 JUNTA TUDO
-    function tratar(dado) {
-      if (!dado) return {};
-
-      if (dado.ObjetoRetorno) return dado.ObjetoRetorno;
-
-      return dado;
-    }
+    // =============================
+    // 🎯 RESULTADO FINAL
+    // =============================
 
     const resultadoFinal = {
-      base: tratar(base),
-      gravame: tratar(gravame),
-      renajud: tratar(renajud),
-      leilao: tratar(leilao),
-      indsis: tratar(indsis),
-      sinistro: tratar(sinistro),
-      km: tratar(km),
-      chassi: tratar(chassi),
-      bdrf: tratar(bdrf),
-      fipe: tratar(precificador),
-      remarketing: tratar(remarketing)
+      base,
+      gravame: gravame.status === "ok" ? gravame.dados : { erro: true },
+      debitos: debitos.status === "ok" ? debitos.dados : { erro: true },
+      multas: multas.status === "ok" ? multas.dados : { erro: true },
+      renajud: renajud.status === "ok" ? renajud.dados : { erro: true }
     };
 
-    // 🔒 TRANSAÇÃO
+    // =============================
+    // 💰 COBRANÇA
+    // =============================
+
     await pool.query("BEGIN");
 
-    // 🔥 DESCONTA SALDO
     await pool.query(
       "UPDATE usuarios SET saldo = saldo - $1 WHERE id = $2",
       [VALOR, userId]
     );
 
-    // 🔥 SALVA CONSULTA
     await pool.query(
       `INSERT INTO consultas 
-   (usuario_id, placa, valor_pago, dados_json)
-   VALUES ($1,$2,$3,$4)`,
+      (usuario_id, placa, valor_pago, dados_json)
+      VALUES ($1,$2,$3,$4)`,
       [userId, placaFormatada, VALOR, resultadoFinal]
     );
 
     await pool.query("COMMIT");
 
+    const tempo = Date.now() - startTime;
+
+    console.log("CONSULTA OK:", {
+      placa: placaFormatada,
+      tempo_ms: tempo
+    });
+
     res.json({
       sucesso: true,
       dados: resultadoFinal,
-      novoSaldo: saldo - VALOR
+      novoSaldo: saldo - VALOR,
+      meta: {
+        tempo_ms: tempo
+      }
     });
 
   } catch (error) {
 
     try { await pool.query("ROLLBACK"); } catch { }
 
-    console.log("ERRO CONSULTA COMPLETA:", error.message);
+    console.log("ERRO GRAVE:", error);
 
-    res.status(500).json({ erro: "Erro interno do servidor" });
+    res.status(500).json({
+      erro: "Erro interno do servidor"
+    });
 
   }
 
