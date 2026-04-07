@@ -856,6 +856,97 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
 
 });
 
+const TOKEN_INTERNO = process.env.TOKEN_INTERNO;
+
+app.post("/api/checkpro-completo", async (req, res) => {
+
+  const token = req.headers["x-api-key"];
+
+  if (token !== TOKEN_INTERNO) {
+    return res.status(403).json({ erro: "Acesso negado" });
+  }
+
+  const { placa } = req.body;
+
+  if (!placa) {
+    return res.status(400).json({ erro: "Placa inválida" });
+  }
+
+  const params = new URLSearchParams({
+    cpfUsuario: process.env.CHECKPRO_CPF,
+    senhaUsuario: process.env.CHECKPRO_SENHA,
+    placa: placa
+  });
+
+  async function consultar(servico) {
+    try {
+      const response = await axios.post(
+        `https://ws2.checkpro.com.br/servicejson.asmx/${servico}`,
+        params,
+        {
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          timeout: 20000
+        }
+      );
+
+      return response.data;
+
+    } catch (e) {
+      return { erro: true };
+    }
+  }
+
+  // 🚀 ULTRA RÁPIDO
+  const [
+    base,
+    bdrf,
+    chassi,
+    gravame,
+    sinistro,
+    km,
+    indsis,
+    leilao,
+    leilaoSimples,
+    precificador,
+    remarketing,
+    renajud
+  ] = await Promise.all([
+    consultar("ConsultaBaseEstadualPorPlaca"),
+    consultar("ConsultaBdrfPorPlaca"),
+    consultar("ConsultaDecodeChassi"),
+    consultar("ConsultaGravamePorPlaca"),
+    consultar("ConsultaHistoricoAcidentesPorPlaca"),
+    consultar("ConsultaHistoricoKMPorPlaca"),
+    consultar("ConsultaINDSISPorPlaca"),
+    consultar("ConsultaLeilaoPorPlaca"),
+    consultar("ConsultaLeilaoSimplesPorPlaca"),
+    consultar("ConsultaPrecificadorPorPlaca"),
+    consultar("ConsultaRemarketingAutomotivoPorPlaca"),
+    consultar("ConsultaRenajudPorPlaca")
+  ]);
+
+  res.json({
+    sucesso: true,
+    dados: {
+      base,
+      bdrf,
+      chassi,
+      gravame,
+      sinistro,
+      km,
+      indsis,
+      leilao,
+      leilaoSimples,
+      precificador,
+      remarketing,
+      renajud
+    }
+  });
+
+});
+
 /* =============================
    CONSULTA FIPE (GRÁTIS)
 ============================= */
