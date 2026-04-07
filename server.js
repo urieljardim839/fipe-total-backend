@@ -898,34 +898,29 @@ app.post("/api/checkpro-completo", async (req, res) => {
     }
   }
 
-  // 🚀 ULTRA RÁPIDO
-  const [
-    base,
-    bdrf,
-    chassi,
-    gravame,
-    sinistro,
-    km,
-    indsis,
-    leilao,
-    leilaoSimples,
-    precificador,
-    remarketing,
-    renajud
-  ] = await Promise.all([
-    consultar("ConsultaBaseEstadualPorPlaca"),
-    consultar("ConsultaBdrfPorPlaca"),
-    consultar("ConsultaDecodeChassi"),
-    consultar("ConsultaGravamePorPlaca"),
-    consultar("ConsultaHistoricoAcidentesPorPlaca"),
-    consultar("ConsultaHistoricoKMPorPlaca"),
-    consultar("ConsultaINDSISPorPlaca"),
-    consultar("ConsultaLeilaoPorPlaca"),
-    consultar("ConsultaLeilaoSimplesPorPlaca"),
-    consultar("ConsultaPrecificadorPorPlaca"),
-    consultar("ConsultaRemarketingAutomotivoPorPlaca"),
-    consultar("ConsultaRenajudPorPlaca")
-  ]);
+  // 🔥 CONTROLE DE DELAY (OBRIGATÓRIO PRA CHECKPRO)
+  function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  async function consultarComDelay(servico) {
+    await delay(1200); // 🔥 evita bloqueio da API
+    return await consultar(servico);
+  }
+
+  // 🚀 CONSULTAS EM SEQUÊNCIA (SEM BLOQUEIO)
+  const base = await consultarComDelay("ConsultaBaseEstadualPorPlaca");
+  const bdrf = await consultarComDelay("ConsultaBdrfPorPlaca");
+  const chassi = await consultarComDelay("ConsultaDecodeChassi");
+  const gravame = await consultarComDelay("ConsultaGravamePorPlaca");
+  const sinistro = await consultarComDelay("ConsultaHistoricoAcidentesPorPlaca");
+  const km = await consultarComDelay("ConsultaHistoricoKMPorPlaca");
+  const indsis = await consultarComDelay("ConsultaINDSISPorPlaca");
+  const leilao = await consultarComDelay("ConsultaLeilaoPorPlaca");
+  const leilaoSimples = await consultarComDelay("ConsultaLeilaoSimplesPorPlaca");
+  const precificador = await consultarComDelay("ConsultaPrecificadorPorPlaca");
+  const remarketing = await consultarComDelay("ConsultaRemarketingAutomotivoPorPlaca");
+  const renajud = await consultarComDelay("ConsultaRenajudPorPlaca");
 
   res.json({
     sucesso: true,
