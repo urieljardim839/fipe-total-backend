@@ -607,23 +607,23 @@ app.post("/api/proprietario-atual", autenticar, consultaLimiter, antiAbusoConsul
        TRANSAÇÃO SEGURA
     ============================= */
 
-    await pool.query("BEGIN");
+    //await pool.query("BEGIN");
 
-    await pool.query(
-      "UPDATE usuarios SET saldo = saldo - $1 WHERE id = $2",
-      [VALOR, userId]
-    );
+    //await pool.query(
+    //  "UPDATE usuarios SET saldo = saldo - $1 WHERE id = $2",
+    //  [VALOR, userId]
+    //);
 
     await pool.query(
       `
       INSERT INTO consultas 
-      (usuario_id, placa, valor_pago, dados_json)
+     (usuario_id, placa, valor_pago, dados_json)
       VALUES ($1,$2,$3,$4)
       `,
-      [userId, placaFormatada, VALOR, data]
+     [userId, placaFormatada, VALOR, data]
     );
 
-    await pool.query("COMMIT");
+    //await pool.query("COMMIT");
 
     /* =============================
        RESPOSTA FINAL
