@@ -27,7 +27,11 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-app.use(cors());
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-api-key"]
+}));
 
 /* =============================
    BLOQUEIO DE BOTS
@@ -607,12 +611,12 @@ app.post("/api/proprietario-atual", autenticar, consultaLimiter, antiAbusoConsul
        TRANSAÇÃO SEGURA
     ============================= */
 
-    //await pool.query("BEGIN");
+    await pool.query("BEGIN");
 
-    //await pool.query(
-    //  "UPDATE usuarios SET saldo = saldo - $1 WHERE id = $2",
-    //  [VALOR, userId]
-    //);
+    await pool.query(
+      "UPDATE usuarios SET saldo = saldo - $1 WHERE id = $2",
+      [VALOR, userId]
+    );
 
     await pool.query(
       `
@@ -620,10 +624,10 @@ app.post("/api/proprietario-atual", autenticar, consultaLimiter, antiAbusoConsul
      (usuario_id, placa, valor_pago, dados_json)
       VALUES ($1,$2,$3,$4)
       `,
-     [userId, placaFormatada, VALOR, data]
+      [userId, placaFormatada, VALOR, data]
     );
 
-    //await pool.query("COMMIT");
+    await pool.query("COMMIT");
 
     /* =============================
        RESPOSTA FINAL
@@ -939,6 +943,52 @@ app.post("/api/checkpro-completo", async (req, res) => {
       renajud
     }
   });
+
+});
+
+app.post("/api/gravame", async (req, res) => {
+
+  const token = req.headers["x-api-key"];
+
+  if (token !== process.env.TOKEN_INTERNO) {
+    return res.status(403).json({ erro: "Acesso negado" });
+  }
+
+  const { placa } = req.body;
+
+  if (!placa) {
+    return res.status(400).json({ erro: "Placa inválida" });
+  }
+
+  try {
+
+    const response = await axios.post(
+      "https://ws2.checkpro.com.br/servicejson.asmx/ConsultaGravamePorPlaca",
+      new URLSearchParams({
+        cpfUsuario: process.env.CHECKPRO_CPF,
+        senhaUsuario: process.env.CHECKPRO_SENHA,
+        placa: placa
+      }),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        timeout: 20000
+      }
+    );
+
+    res.json({
+      sucesso: true,
+      dados: response.data
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      erro: "Erro na consulta"
+    });
+
+  }
 
 });
 
