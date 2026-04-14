@@ -27,11 +27,7 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-api-key"]
-}));
+app.use(cors());
 
 /* =============================
    BLOQUEIO DE BOTS
@@ -718,96 +714,95 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
     }
 
     // =============================
-    // 🔥 FUNÇÃO INFOSIMPLES
+    // 🔥 FUNÇÃO CHECKPRO
     // =============================
 
-    async function consultar(servico, params) {
-
+    async function consultar(endpoint) {
       try {
 
         const response = await axios.post(
-          `https://api.infosimples.com/api/v2/consultas/${servico}`,
+          `https://ws2.checkpro.com.br/servicejson.asmx/${endpoint}`,
+          new URLSearchParams({
+            cpfUsuario: process.env.CHECKPRO_CPF,
+            senhaUsuario: process.env.CHECKPRO_SENHA,
+            placa: placaFormatada
+          }),
           {
-            token: process.env.INFOSIMPLES_TOKEN,
-            timeout: 60,
-            ...params
-          },
-          { timeout: 70000 }
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded"
+            },
+            timeout: 20000
+          }
         );
 
-        if (response.data.code === 200) {
-          return {
-            status: "ok",
-            dados: response.data.data[0] || response.data.data
-          };
-        }
-
-        return {
-          status: "erro",
-          mensagem: response.data.code_message
-        };
+        return response.data;
 
       } catch (err) {
 
-        console.log(`Erro ${servico}:`, err.message);
+        console.log(`Erro ${endpoint}:`, err.message);
 
-        return {
-          status: "erro",
-          mensagem: "Falha na API"
-        };
+        return { erro: true };
 
       }
-
     }
 
     // =============================
-    // 🚀 1. SENATRAN (PRIMEIRO)
+    // 🚀 CONSULTAS CHECKPRO
     // =============================
 
-    const senatran = await consultar("senatran/veiculo", {
-      placa: placaFormatada
-    });
+    const base = await consultar("ConsultaBaseEstadualPorPlaca");
 
-    if (senatran.status !== "ok") {
+    if (!base || String(base.StatusRetorno) !== "1") {
       return res.status(400).json({
         erro: "Não foi possível consultar veículo"
       });
     }
 
-    const base = senatran.dados;
+    // 🔥 DELAY OBRIGATÓRIO
+    function delay(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
 
-    const renavam = base.renavam;
-    const chassi = base.chassi;
+    async function consultarComDelay(endpoint) {
+      await delay(1200); // 🔥 ESSENCIAL PRA CHECKPRO
+      return await consultar(endpoint);
+    }
 
-    // =============================
-    // 🚀 2. OUTRAS CONSULTAS
-    // =============================
-
-    const [gravame, debitos, multas, renajud] = await Promise.all([
-
-      consultar("detran/ba/gravame", { chassi }),
-
-      consultar("detran/ba/debitos", { renavam }),
-
-      consultar("detran/ba/multas", { renavam }),
-
-      consultar("detran/al/renajud", {
-        placa: placaFormatada,
-        renavam
-      })
-
-    ]);
+    // 🚀 CONSULTAS SEQUENCIAIS
+    const gravame = await consultarComDelay("ConsultaGravamePorPlaca");
+    const renajud = await consultarComDelay("ConsultaRenajudPorPlaca");
+    const leilao = await consultarComDelay("ConsultaLeilaoPorPlaca");
+    const indsis = await consultarComDelay("ConsultaINDSISPorPlaca");
+    const sinistro = await consultarComDelay("ConsultaHistoricoAcidentesPorPlaca");
+    const km = await consultarComDelay("ConsultaHistoricoKMPorPlaca");
+    const chassi = await consultarComDelay("ConsultaDecodeChassi");
+    const bdrf = await consultarComDelay("ConsultaBdrfPorPlaca");
+    const precificador = await consultarComDelay("ConsultaPrecificadorPorPlaca");
+    const remarketing = await consultarComDelay("ConsultaRemarketingAutomotivoPorPlaca");
 
     // =============================
     // 🎯 RESULTADO FINAL
     // =============================
 
+    function tratar(dado) {
+      if (!dado) return {};
+      if (dado.erro) return {};
+      if (dado.StatusRetorno && dado.StatusRetorno !== "1") return {};
+      return dado.ObjetoRetorno || dado;
+    }
+
     const resultadoFinal = {
-      base,
-      gravame: gravame.status === "ok" ? gravame.dados : { erro: true },
-      debitos: debitos.status === "ok" ? debitos.dados : { erro: true },
-      multas: multas.status === "ok" ? multas.dados : { erro: true },
-      renajud: renajud.status === "ok" ? renajud.dados : { erro: true }
+      base: tratar(base),
+      gravame: tratar(gravame),
+      renajud: tratar(renajud),
+      leilao: tratar(leilao),
+      indsis: tratar(indsis),
+      sinistro: tratar(sinistro),
+      km: tratar(km),
+      chassi: tratar(chassi),
+      bdrf: tratar(bdrf),
+      precificador: tratar(precificador),
+      remarketing: tratar(remarketing)
     };
 
     // =============================
