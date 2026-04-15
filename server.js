@@ -739,7 +739,7 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
 
       } catch (err) {
 
-        console.log(`Erro ${endpoint}:`, err.message);
+        console.log(`Erro ${endpoint}:`, err.response?.data || err.message);
 
         return { erro: true };
 
@@ -764,7 +764,7 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
     }
 
     async function consultarComDelay(endpoint) {
-      await delay(1200); // 🔥 ESSENCIAL PRA CHECKPRO
+      await delay(2000); // 🔥 ESSENCIAL PRA CHECKPRO
       return await consultar(endpoint);
     }
 
@@ -779,16 +779,35 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
     const bdrf = await consultarComDelay("ConsultaBdrfPorPlaca");
     const precificador = await consultarComDelay("ConsultaPrecificadorPorPlaca");
     const remarketing = await consultarComDelay("ConsultaRemarketingAutomotivoPorPlaca");
+    const leilaoSimples = await consultarComDelay("ConsultaLeilaoSimplesPorPlaca");
 
     // =============================
     // 🎯 RESULTADO FINAL
     // =============================
 
     function tratar(dado) {
-      if (!dado) return {};
-      if (dado.erro) return {};
-      if (dado.StatusRetorno && dado.StatusRetorno !== "1") return {};
-      return dado.ObjetoRetorno || dado;
+
+      if (!dado) return "Não retornou dados";
+
+      if (dado.erro) return "Consulta indisponível";
+
+      // 🔥 TRATA OBJETO VAZIO
+      if (typeof dado === "object" && Object.keys(dado).length === 0) {
+        return "Não retornou dados";
+      }
+
+      if (dado.StatusRetorno && dado.StatusRetorno !== "1") {
+        return dado.MensagemRetorno || "Não retornou dados";
+      }
+
+      const resultado = dado.ObjetoRetorno || dado;
+
+      // 🔥 SEGUNDA VERIFICAÇÃO (ESSENCIAL)
+      if (typeof resultado === "object" && Object.keys(resultado).length === 0) {
+        return "Não retornou dados";
+      }
+
+      return resultado;
     }
 
     const resultadoFinal = {
@@ -802,7 +821,8 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
       chassi: tratar(chassi),
       bdrf: tratar(bdrf),
       precificador: tratar(precificador),
-      remarketing: tratar(remarketing)
+      remarketing: tratar(remarketing),
+      leilaoSimples: tratar(leilaoSimples)
     };
 
     // =============================
@@ -903,7 +923,7 @@ app.post("/api/checkpro-completo", async (req, res) => {
   }
 
   async function consultarComDelay(servico) {
-    await delay(1200); // 🔥 evita bloqueio da API
+    await delay(2000); // 🔥 evita bloqueio da API
     return await consultar(servico);
   }
 
