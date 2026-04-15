@@ -1626,7 +1626,7 @@ app.get("/api/admin/quotas", async (req, res) => {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        token: "SEU_TOKEN_AQUI"
+        token: "AB9D406435CD6C3BA6BF297D16D61085596894628BB550EA7B5EF7A528AE737E"
       })
     });
 
