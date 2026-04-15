@@ -1618,6 +1618,27 @@ app.post("/api/nova-senha", async (req, res) => {
 
 });
 
+app.get("/api/admin/quotas", async (req, res) => {
+  try {
+    const response = await fetch("https://api.placafipe.com.br/getquotas", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        token: "SEU_TOKEN_AQUI"
+      })
+    });
+
+    const data = await response.json();
+
+    res.json(data);
+
+  } catch (err) {
+    res.status(500).json({ erro: "Erro ao buscar quotas" });
+  }
+});
+
 /* =============================
    SERVIDOR
 ============================= */
