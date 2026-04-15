@@ -517,7 +517,7 @@ app.post("/api/proprietario-atual", autenticar, consultaLimiter, antiAbusoConsul
 
     const { placa } = req.body;
     const userId = req.usuario.id;
-    const VALOR = 7.90;
+    const VALOR = 10.90;
 
     if (!placa || !userId) {
       return res.status(400).json({ erro: "Dados inválidos" });
