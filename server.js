@@ -811,18 +811,18 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
     }
 
     const resultadoFinal = {
-      base: tratar(base),
-      gravame: tratar(gravame),
-      renajud: tratar(renajud),
-      leilao: tratar(leilao),
-      indsis: tratar(indsis),
-      sinistro: tratar(sinistro),
-      km: tratar(km),
-      chassi: tratar(chassi),
-      bdrf: tratar(bdrf),
-      precificador: tratar(precificador),
-      remarketing: tratar(remarketing),
-      leilaoSimples: tratar(leilaoSimples)
+      base,
+      gravame,
+      renajud,
+      leilao,
+      indsis,
+      sinistro,
+      km,
+      chassi,
+      bdrf,
+      precificador,
+      remarketing,
+      leilaoSimples
     };
 
     // =============================
