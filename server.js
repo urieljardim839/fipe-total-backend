@@ -1011,7 +1011,7 @@ app.post("/api/gravame", async (req, res) => {
    CONSULTA FIPE (GRÁTIS)
 ============================= */
 
-app.get("/api/placafipe/:placa/:usuario_id?", autenticar, consultaLimiter, async (req, res) => {
+app.get("/api/placafipe/:placa/:usuario_id?", consultaLimiter, async (req, res) => {
 
   try {
 
