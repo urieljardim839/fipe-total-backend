@@ -660,6 +660,21 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
 
   const startTime = Date.now();
 
+  let cancelado = false;
+
+  req.on("close", () => {
+    cancelado = true;
+    console.log("❌ Cliente cancelou a requisição");
+  });
+
+  function verificarCancelamento() {
+    if (cancelado) {
+      console.log("🚫 Consulta cancelada - não cobrar");
+      throw new Error("CANCELADO");
+    }
+  }
+
+
   try {
 
     const { placa } = req.body;
@@ -751,10 +766,16 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
     // =============================
 
     const base = await consultar("ConsultaBaseEstadualPorPlaca");
+    verificarCancelamento();
 
     if (!base || String(base.StatusRetorno) !== "1") {
+
+      console.log("❌ ERRO CHECKPRO BASE:");
+      console.log("RESPOSTA:", base);
+
       return res.status(400).json({
-        erro: "Não foi possível consultar veículo"
+        erro: base?.MensagemRetorno || "Não foi possível consultar veículo",
+        detalhe: base
       });
     }
 
@@ -770,16 +791,36 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
 
     // 🚀 CONSULTAS SEQUENCIAIS
     const gravame = await consultarComDelay("ConsultaGravamePorPlaca");
+    verificarCancelamento();
     const renajud = await consultarComDelay("ConsultaRenajudPorPlaca");
+    verificarCancelamento();
+
     const leilao = await consultarComDelay("ConsultaLeilaoPorPlaca");
+    verificarCancelamento();
+
     const indsis = await consultarComDelay("ConsultaINDSISPorPlaca");
+    verificarCancelamento();
+
     const sinistro = await consultarComDelay("ConsultaHistoricoAcidentesPorPlaca");
+    verificarCancelamento();
+
     const km = await consultarComDelay("ConsultaHistoricoKMPorPlaca");
+    verificarCancelamento();
+
     const chassi = await consultarComDelay("ConsultaDecodeChassi");
+    verificarCancelamento();
+
     const bdrf = await consultarComDelay("ConsultaBdrfPorPlaca");
+    verificarCancelamento();
+
     const precificador = await consultarComDelay("ConsultaPrecificadorPorPlaca");
+    verificarCancelamento();
+
     const remarketing = await consultarComDelay("ConsultaRemarketingAutomotivoPorPlaca");
+    verificarCancelamento();
+
     const leilaoSimples = await consultarComDelay("ConsultaLeilaoSimplesPorPlaca");
+    verificarCancelamento();
 
     // =============================
     // 🎯 RESULTADO FINAL
@@ -829,7 +870,43 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
     // 💰 COBRANÇA
     // =============================
 
+    // 🚨 VALIDAÇÃO CRÍTICA
+
+    const consultas = [
+      gravame,
+      renajud,
+      leilao,
+      indsis,
+      sinistro,
+      km,
+      chassi,
+      bdrf,
+      precificador,
+      remarketing,
+      leilaoSimples
+    ];
+
+    // se muitas falharam → NÃO cobra
+    const erros = consultas.filter(c => c?.erro);
+
+    if (erros.length > 3) {
+      return res.status(500).json({
+        erro: "Consulta incompleta. Tente novamente."
+      });
+    }
+
+    if (cancelado) {
+      console.log("🚫 Cancelado antes de cobrar");
+      return;
+    }
+
     await pool.query("BEGIN");
+
+    if (cancelado) {
+      console.log("🚫 Cancelado durante transação");
+      await pool.query("ROLLBACK");
+      return;
+    }
 
     await pool.query(
       "UPDATE usuarios SET saldo = saldo - $1 WHERE id = $2",
@@ -863,6 +940,11 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
 
   } catch (error) {
 
+    if (error.message === "CANCELADO") {
+      console.log("🛑 Execução interrompida pelo cliente");
+      return;
+    }
+
     try { await pool.query("ROLLBACK"); } catch { }
 
     console.log("ERRO GRAVE:", error);
@@ -870,7 +952,6 @@ app.post("/api/consulta-completa", autenticar, consultaLimiter, antiAbusoConsult
     res.status(500).json({
       erro: "Erro interno do servidor"
     });
-
   }
 
 });
