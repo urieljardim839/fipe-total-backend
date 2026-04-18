@@ -250,7 +250,7 @@ app.post("/api/cadastro", async (req, res) => {
 
     res.json({ token, usuario });
 
-    const link = `https://fipetotal.com.br/verificar-email.html?token=${token}`;
+    const link = `https://fipetotal.com/verificar-email.html?token=${token}`;
 
     setImmediate(async () => {
       try {
@@ -390,9 +390,9 @@ app.post("/api/criar-pagamento", autenticar, async (req, res) => {
         },
         notification_url: "https://fipe-total-backend.onrender.com/api/webhook-mercadopago",
         back_urls: {
-          success: `https://fipetotal.com.br/sucesso.html?valor=${valor}`,
-          failure: "https://fipetotal.com.br/erro.html",
-          pending: "https://fipetotal.com.br/pendente.html"
+          success: `https://fipetotal.com/sucesso.html?valor=${valor}`,
+          failure: "https://fipetotal.com/erro.html",
+          pending: "https://fipetotal.com/pendente.html"
         },
         auto_return: "approved"
       }
@@ -1628,7 +1628,7 @@ app.post("/api/recuperar-senha", async (req, res) => {
       { expiresIn: "15m" }
     );
 
-    const link = `https://fipetotal.com.br/nova-senha.html?token=${token}`;
+    const link = `https://fipetotal.com/nova-senha.html?token=${token}`;
 
     await transporter.sendMail({
 
